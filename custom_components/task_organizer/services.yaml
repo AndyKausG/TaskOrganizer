@@ -70,6 +70,48 @@ add_task:
       required: false
       selector:
         icon:
+    category:
+      name: Category (Optional)
+      description: "Kids mode category: basis (assigned duty), bonus (open for all kids, first come first served) or auftrag (one-time assignment). Default basis."
+      required: false
+      selector:
+        select:
+          options:
+            - basis
+            - bonus
+            - auftrag
+    min_age:
+      name: Minimum age (Optional)
+      description: Minimum age in years a kid needs to do this task (0 = no restriction).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 18
+    requires_approval:
+      name: Requires parent approval (Optional)
+      description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    available_from:
+      name: Available from (Optional)
+      description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
+    available_until:
+      name: Available until (Optional)
+      description: Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
     assignees:
       name: Assignees (Optional)
       description: Who is responsible? (Comma separated user IDs or person.name entities).
@@ -184,6 +226,48 @@ edit_task_by_name:
       required: false
       selector:
         icon:
+    category:
+      name: Category (Optional)
+      description: "Kids mode category: basis (assigned duty), bonus (open for all kids, first come first served) or auftrag (one-time assignment). Default basis."
+      required: false
+      selector:
+        select:
+          options:
+            - basis
+            - bonus
+            - auftrag
+    min_age:
+      name: Minimum age (Optional)
+      description: Minimum age in years a kid needs to do this task (0 = no restriction).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 18
+    requires_approval:
+      name: Requires parent approval (Optional)
+      description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    available_from:
+      name: Available from (Optional)
+      description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
+    available_until:
+      name: Available until (Optional)
+      description: Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
     assignees:
       name: Assignees (Optional)
       description: Who is responsible? (Comma separated user IDs or person.name entities).
@@ -249,6 +333,48 @@ add_template:
       required: false
       selector:
         icon:
+    category:
+      name: Category (Optional)
+      description: "Kids mode category: basis (assigned duty), bonus (open for all kids, first come first served) or auftrag (one-time assignment). Default basis."
+      required: false
+      selector:
+        select:
+          options:
+            - basis
+            - bonus
+            - auftrag
+    min_age:
+      name: Minimum age (Optional)
+      description: Minimum age in years a kid needs to do this task (0 = no restriction).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 18
+    requires_approval:
+      name: Requires parent approval (Optional)
+      description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    available_from:
+      name: Available from (Optional)
+      description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
+    available_until:
+      name: Available until (Optional)
+      description: Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
     assignees:
       name: Assignees (Optional)
       description: Who is responsible? (Comma separated user IDs or person.name entities).
@@ -331,9 +457,81 @@ edit_template_by_name:
       required: false
       selector:
         icon:
+    category:
+      name: Category (Optional)
+      description: "Kids mode category: basis (assigned duty), bonus (open for all kids, first come first served) or auftrag (one-time assignment). Default basis."
+      required: false
+      selector:
+        select:
+          options:
+            - basis
+            - bonus
+            - auftrag
+    min_age:
+      name: Minimum age (Optional)
+      description: Minimum age in years a kid needs to do this task (0 = no restriction).
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 18
+    requires_approval:
+      name: Requires parent approval (Optional)
+      description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    available_from:
+      name: Available from (Optional)
+      description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
+    available_until:
+      name: Available until (Optional)
+      description: Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit.
+      required: false
+      selector:
+        time:
     assignees:
       name: Assignees (Optional)
       description: Who is responsible? (Comma separated user IDs or person.name entities).
       required: false
+      selector:
+        text:
+
+adjust_points:
+  name: Adjust points
+  description: Gives a kid bonus points or deducts points (e.g. as a consequence) and records it in the history with a reason. Admin only. A kid never drops below 0 points.
+  fields:
+    kid_id:
+      name: Kid
+      description: The kid's person entity (or participant ID).
+      required: true
+      example: person.anna
+      selector:
+        entity:
+          domain: person
+    points:
+      name: Points
+      description: Positive for a bonus, negative for a deduction (1 to 50, either way).
+      required: true
+      example: 5
+      selector:
+        number:
+          min: -50
+          max: 50
+          mode: box
+    reason:
+      name: Reason
+      description: Why? Shown in the protocol (max. 80 characters).
+      required: true
+      example: Helped without being asked
       selector:
         text:

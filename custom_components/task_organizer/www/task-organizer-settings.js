@@ -41,7 +41,34 @@ const I18N_SETTINGS = {
     set_default: "Set Default",
     import_tasks_title: "Import Tasks", metadata_title: "Import Overview", tasks_lbl: "Tasks", 
     templates_lbl: "Templates", history_lbl: "History Entries", settings_included: "Settings", 
-    yes: "Yes", no: "No", start_import: "Start Import", confirm_reload: "Confirm & Reload"
+    yes: "Yes", no: "No", start_import: "Start Import", confirm_reload: "Confirm & Reload",
+    kids_title: "Kids", kids_desc: "Enable persons as kids for the kids card: avatar, color, birth year and an optional 4-digit PIN. Kids do not need a Home Assistant user.",
+    kid_enable: "Is a kid", kid_avatar: "Avatar (emoji)", kid_color: "Color", kid_birth_year: "Birth year", kid_goal: "Monthly goal (points)",
+    kid_pin: "PIN (4 digits)", kid_pin_set: "PIN set (empty = keep)", kid_pin_none: "No PIN", kid_pin_clear: "Remove PIN",
+    kids_admin_only: "Only administrators and parents with management rights can change kid profiles and PINs.",
+    parents_title: "Parents", parents_desc: "Home Assistant users who may approve, give points and undo without being administrators. \"May manage\" additionally allows kid profiles, the wizard and bonus triggers. Administrators are always parents.",
+    parents_warn: "Do not enter the tablet user here.", parents_col_parent: "Parent", parents_col_manage: "May manage",
+    parents_none: "No persons with a Home Assistant user found.", parents_admin_only: "Only administrators can change the parents.", invalid_pin: "The PIN must consist of exactly 4 digits.",
+    kids_save_error: "Could not save the kid profiles: ",
+    kid_birthday: "Birthday", kid_birth_year_fallback: "Birth year (if no birthday)", kid_sample: "Spot checks by parents: {n} %",
+    kid_sample_hint: "Share of completions that a parent checks at random before points are awarded (0 = none).",
+    invalid_birthday: "The birthday must be a valid date in the past.",
+    approval_title: "Approval & consequences",
+    cheat_penalty_factor: "Deduction when cheating (x task points)", cheat_strict_days: "Strict mode after cheating (days, 0 = off)",
+    birthday_title: "Birthday", birthday_bonus_points: "Birthday bonus (points, 0 = off)",
+    team_title: "Teamwork", team_bonus: "Team bonus per kid when doing a task together (points, 0 = off)",
+    birthday_duty_free: "Duty-free birthday: skip the kid's own due tasks",
+    family_goal: "Family goal", family_goal_points: "Points per month (all kids together)", family_goal_reward: "Reward", family_goal_reward_ph: "e.g. Ice cream trip",
+claim_minutes: "Bonus reservation (minutes)",
+    category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
+    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
+    available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
+    expire_missed: "Missed duties expire at midnight (daily duties right away, weekly ones after 2 days) - no points, no deduction",
+    wizard_btn: "🚀 Kids mode quick start", wizard_hint: "Proposes an age-appropriate set of tasks, points and goals for your kids and creates everything in one click.",
+    wizard_missing: "The wizard could not be loaded. Reload the page (Ctrl+F5) and try again.",
+    triggers_title: "Bonus triggers", triggers_desc: "Open a bonus task automatically when an entity changes to a state, e.g. when the dishwasher is finished. Fires the event task_organizer_bonus_opened.",
+    trig_task: "Bonus task", trig_pick_task: "— choose a bonus task —", trig_add: "Add trigger", trig_remove: "Remove trigger", trig_none: "No triggers yet.", trig_no_bonus: "No bonus task yet. Create a task without assignee and category \"Bonus\" (or let the quick start create them).",
+    trig_when: "when {entity} becomes \"{state}\"", trig_error: "Could not save the triggers: "
   },
   de: { 
     title: "Einstellungen", colors: "Farben (Erledigt, Fällig, Überfällig)", c_done: "Erledigt", c_due: "Fällig", c_overdue: "Überfällig", 
@@ -80,7 +107,34 @@ const I18N_SETTINGS = {
     set_default: "Standard setzen",
     import_tasks_title: "Aufgaben importieren", metadata_title: "Import Übersicht", tasks_lbl: "Aufgaben", 
     templates_lbl: "Vorlagen", history_lbl: "Historien-Einträge", settings_included: "Einstellungen", 
-    yes: "Ja", no: "Nein", start_import: "Import starten", confirm_reload: "Bestätigen & Neuladen"
+    yes: "Ja", no: "Nein", start_import: "Import starten", confirm_reload: "Bestätigen & Neuladen",
+    kids_title: "Kinder / Kids", kids_desc: "Personen als Kinder für die Kinder-Karte freischalten: Avatar, Farbe, Geburtsjahr und optional eine 4-stellige PIN. Kinder brauchen keinen Home-Assistant-Benutzer.",
+    kid_enable: "Ist ein Kind", kid_avatar: "Avatar (Emoji)", kid_color: "Farbe", kid_birth_year: "Geburtsjahr", kid_goal: "Monatsziel (Punkte)",
+    kid_pin: "PIN (4 Ziffern)", kid_pin_set: "PIN gesetzt (leer = behalten)", kid_pin_none: "Keine PIN", kid_pin_clear: "PIN entfernen",
+    kids_admin_only: "Nur Administratoren und Eltern mit Verwaltungsrecht können Kinder-Profile und PINs ändern.",
+    parents_title: "Eltern", parents_desc: "Home-Assistant-Benutzer, die ohne Administratorrechte freigeben, Punkte vergeben und rückgängig machen dürfen. \"Darf verwalten\" erlaubt zusätzlich Kinder-Profile, Assistent und Bonus-Auslöser. Administratoren sind immer Eltern.",
+    parents_warn: "Den Tablet-Benutzer hier nicht eintragen.", parents_col_parent: "Eltern", parents_col_manage: "Darf verwalten",
+    parents_none: "Keine Personen mit Home-Assistant-Benutzer gefunden.", parents_admin_only: "Nur Administratoren können die Eltern ändern.", invalid_pin: "Die PIN muss aus genau 4 Ziffern bestehen.",
+    kids_save_error: "Kinder-Profile konnten nicht gespeichert werden: ",
+    kid_birthday: "Geburtstag", kid_birth_year_fallback: "Geburtsjahr (falls kein Geburtstag)", kid_sample: "Stichproben durch Eltern: {n} %",
+    kid_sample_hint: "Anteil der Erledigungen, die Mama oder Papa zufällig prüfen, bevor Punkte gutgeschrieben werden (0 = keine).",
+    invalid_birthday: "Der Geburtstag muss ein gültiges Datum in der Vergangenheit sein.",
+    approval_title: "Freigabe & Konsequenzen",
+    cheat_penalty_factor: "Abzug bei Schummeln (x Aufgabenpunkte)", cheat_strict_days: "Strenge Phase nach Schummeln (Tage, 0 = aus)",
+    birthday_title: "Geburtstag", birthday_bonus_points: "Geburtstags-Bonus (Punkte, 0 = aus)",
+    team_title: "Teamarbeit", team_bonus: "Team-Bonus pro Kind bei gemeinsam erledigten Aufgaben (Punkte, 0 = aus)",
+    birthday_duty_free: "Pflichtfreier Geburtstag: eigene fällige Aufgaben überspringen",
+    family_goal: "Familienziel", family_goal_points: "Punkte pro Monat (alle Kinder zusammen)", family_goal_reward: "Belohnung", family_goal_reward_ph: "z.B. Eis essen gehen",
+claim_minutes: "Bonus-Reservierung (Minuten)",
+    category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
+    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
+    available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
+    expire_missed: "Verpasste Pflichten verfallen um Mitternacht (tägliche sofort, wöchentliche nach 2 Tagen) – ohne Punkte, ohne Abzug",
+    wizard_btn: "🚀 Kindermodus-Schnellstart", wizard_hint: "Schlägt altersgerechte Aufgaben, Punkte und Ziele für eure Kinder vor und legt alles mit einem Klick an.",
+    wizard_missing: "Der Assistent konnte nicht geladen werden. Seite neu laden (Strg+F5) und erneut versuchen.",
+    triggers_title: "Bonus-Auslöser / Bonus triggers", triggers_desc: "Öffnet eine Bonus-Aufgabe automatisch, wenn eine Entität einen Zustand annimmt, z.B. wenn die Spülmaschine fertig ist. Löst das Ereignis task_organizer_bonus_opened aus.",
+    trig_task: "Bonus-Aufgabe", trig_pick_task: "— Bonus-Aufgabe wählen —", trig_add: "Auslöser hinzufügen", trig_remove: "Auslöser entfernen", trig_none: "Noch keine Auslöser.", trig_no_bonus: "Noch keine Bonus-Aufgabe vorhanden. Lege eine Aufgabe ohne Bearbeiter mit Kategorie „Bonus“ an (oder lass sie vom Schnellstart anlegen).",
+    trig_when: "wenn {entity} auf \"{state}\" wechselt", trig_error: "Auslöser konnten nicht gespeichert werden: "
   }
 };
 
@@ -94,6 +148,72 @@ window.customCards.push({
   description: "Displays and manages integration settings, colors, and imports/exports.",
   preview: true,
 });
+
+/**
+ * Birthday input as three selects (day / month / year). Native date pickers
+ * (e.g. Safari) offer no quick year selection. The ISO value lives in a hidden
+ * input carrying the given attributes; it receives an "input" event on change.
+ */
+const toSetBdayMonths = {
+  de: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
+  en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+};
+function toSetBdayHtml(value, attrs, lang, disabled) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  const [y, mo, d] = m ? [+m[1], +m[2], +m[3]] : [0, 0, 0];
+  const now = new Date().getFullYear();
+  const months = toSetBdayMonths[lang === 'de' ? 'de' : 'en'];
+  const opt = (v, label, sel) => `<option value="${v}" ${sel ? 'selected' : ''}>${label}</option>`;
+  const dis = disabled ? 'disabled' : '';
+  let days = opt('', lang === 'de' ? 'Tag' : 'Day', !d);
+  for (let i = 1; i <= 31; i++) days += opt(i, i, i === d);
+  let mons = opt('', lang === 'de' ? 'Monat' : 'Month', !mo);
+  months.forEach((n, i) => { mons += opt(i + 1, n, i + 1 === mo); });
+  let years = opt('', lang === 'de' ? 'Jahr' : 'Year', !y);
+  for (let i = now; i >= now - 25; i--) years += opt(i, i, i === y);
+  if (y && y < now - 25) years += opt(y, y, true);
+  return `<span class="bday-sel" style="display:flex;gap:6px">
+      <select data-part="d" ${dis} style="flex:0.8;min-width:0;height:38px;padding:0 6px;font-size:15px;border:1px solid var(--divider-color,#ccc);border-radius:6px;background:var(--primary-background-color,#fff);color:var(--primary-text-color,#212121)">${days}</select>
+      <select data-part="m" ${dis} style="flex:1;min-width:0;height:38px;padding:0 6px;font-size:15px;border:1px solid var(--divider-color,#ccc);border-radius:6px;background:var(--primary-background-color,#fff);color:var(--primary-text-color,#212121)">${mons}</select>
+      <select data-part="y" ${dis} style="flex:1.1;min-width:0;height:38px;padding:0 6px;font-size:15px;border:1px solid var(--divider-color,#ccc);border-radius:6px;background:var(--primary-background-color,#fff);color:var(--primary-text-color,#212121)">${years}</select>
+      <input type="hidden" ${attrs} value="${value || ''}"></span>`;
+}
+function toSetBdayBind(root) {
+  root.querySelectorAll('.bday-sel').forEach(box => {
+    if (box.dataset.bound) return;
+    box.dataset.bound = '1';
+    box.addEventListener('change', (ev) => {
+      if (!ev.target.dataset || !ev.target.dataset.part) return;
+      ev.stopPropagation();
+      const get = (p) => parseInt(box.querySelector(`[data-part="${p}"]`).value) || 0;
+      const d = get('d'), m = get('m'), y = get('y');
+      let iso = '';
+      if (d && m && y) {
+        const last = new Date(y, m, 0).getDate();
+        const day = Math.min(d, last);
+        if (day !== d) box.querySelector('[data-part="d"]').value = String(day);
+        iso = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+      const hidden = box.querySelector('input[type="hidden"]');
+      hidden.value = iso;
+      hidden.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    });
+  });
+}
+
+/**
+ * Options for a time select ("HH:MM", 15-minute steps). Used instead of
+ * <input type="time">, whose native picker crashes some browsers (Safari)
+ * inside the dialogs. A value outside the steps is kept as its own option.
+ */
+function toSetTTimeOptions(value, emptyLabel) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const times = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  if (v && !times.includes(v)) { times.push(v); times.sort(); }
+  return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
+    times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
 
 class TaskOrganizerSettings extends HTMLElement {
   /**
@@ -125,6 +245,16 @@ class TaskOrganizerSettings extends HTMLElement {
     this._importData = null;
     this._importProgress = 0;
     this._editingTemplateId = null;
+    this._kidDrafts = {};
+    this._goalDrafts = {};
+    this._familyDraft = {};
+    this._kidsOpen = false;
+    this._myRole = null;
+    this._haUsers = [];
+    this._parentsDraft = null;
+    this._trigOpen = false;
+    this._trigDraft = { task: '', entity_id: '', to_state: '', filter: '' };
+    this._wizard = null;
     this._unsubEvents = null;
     this.addEventListener('click', (ev) => this._handleClick(ev));
   }
@@ -193,6 +323,7 @@ class TaskOrganizerSettings extends HTMLElement {
   }
 
   disconnectedCallback() { 
+    if (this._wizard) { this._wizard.remove(); this._wizard = null; }
     if (this._unsubEvents) { 
       this._unsubEvents.then(unsub => unsub()); 
       this._unsubEvents = null; 
@@ -216,6 +347,7 @@ class TaskOrganizerSettings extends HTMLElement {
    */
   set hass(hass) {
     this._hass = hass;
+    if (this._wizard) this._wizard.hass = hass;
     if (!this._dataLoaded && this._hass) {
       this._mapUsers();
       this._fetchData(); 
@@ -227,7 +359,69 @@ class TaskOrganizerSettings extends HTMLElement {
   }
 
   /**
+   * Participant ID of a person entity: the linked HA user_id if present,
+   * otherwise the person entity_id (persons without a user account, e.g. kids).
+   * @param {string} entityId - The person entity_id.
+   * @param {object} state - The person state object.
+   * @returns {string} - The participant ID used for points/history/assignees.
+   */
+  static participantId(entityId, state) {
+    return (state && state.attributes && state.attributes.user_id) || entityId;
+  }
+
+  /**
+   * Role of the current user: 'admin' | 'manager' | 'parent' | null (from get_data, with a
+   * fallback to the HA admin flag until the data is loaded).
+   * @returns {string|null}
+   */
+  _role() {
+    if (this._hass && this._hass.user && this._hass.user.is_admin) return 'admin';
+    return this._myRole || null;
+  }
+
+  /** True for admins and parents with management rights (kids section, wizard, triggers). */
+  _canManage() {
+    const role = this._role();
+    return role === 'admin' || role === 'manager';
+  }
+
+  /**
+   * Rows of the "Parents" list: persons with an HA user plus already configured user ids.
+   * @returns {Array<{uid: string, name: string}>}
+   */
+  _parentRows() {
+    const rows = new Map();
+    for (const u of this._haUsers) rows.set(u.user_id, u.name || u.user_id);
+    for (const [uid, name] of Object.entries(this.users)) {
+      if (!uid.startsWith('person.')) rows.set(uid, name);
+    }
+    const mine = this._hass && this._hass.user;
+    if (mine && mine.id && mine.name && !rows.has(mine.id) && ((this.settings.parents || []).includes(mine.id))) {
+      rows.set(mine.id, mine.name);
+    }
+    for (const uid of [...(this.settings.parents || []), ...(this.settings.parents_manage || [])]) {
+      if (!rows.has(uid)) rows.set(uid, uid);
+    }
+    return [...rows.entries()].map(([uid, name]) => ({ uid, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Current parents lists: the draft if edited, otherwise the stored settings (read-only view). */
+  _parentsState() {
+    return this._parentsDraft || {
+      parents: new Set(this.settings.parents || []),
+      manage: new Set(this.settings.parents_manage || [])
+    };
+  }
+
+  /** Draft of the parents lists, created from the stored settings on the first edit. */
+  _parentsEdit() {
+    if (!this._parentsDraft) this._parentsDraft = this._parentsState();
+    return this._parentsDraft;
+  }
+
+  /**
    * Maps Home Assistant 'person' entities to the local users object.
+   * Persons without an HA user are keyed by their entity_id.
    */
   _mapUsers() {
     const users = {};
@@ -235,9 +429,7 @@ class TaskOrganizerSettings extends HTMLElement {
     for (const entityId in this._hass.states) {
         if (entityId.startsWith('person.')) {
             const state = this._hass.states[entityId];
-            if (state.attributes.user_id) {
-                users[state.attributes.user_id] = state.attributes.friendly_name || entityId;
-            }
+            users[TaskOrganizerSettings.participantId(entityId, state)] = state.attributes.friendly_name || entityId;
         }
     }
     this.users = users;
@@ -258,14 +450,127 @@ class TaskOrganizerSettings extends HTMLElement {
       this.monthly_history = data.monthly_history || {};
       this.current_month = data.current_month;
       this.current_period_start = data.current_period_start;
+      this._myRole = data.my_role || null;
+      this._haUsers = Array.isArray(data.ha_users) ? data.ha_users : [];
+      this._settingsLoaded = true;
       this._render(); 
     }); 
   }
   
   /**
+   * Returns the (lazily created) draft of the kid profile editor for a participant.
+   * Drafts survive re-renders so unsaved input is not lost when sections are toggled.
+   * @param {string} uid - Participant ID.
+   * @returns {object} - The draft.
+   */
+  _kidDraft(uid) {
+    if (!this._kidDrafts[uid]) {
+      const k = (this.settings.kids || {})[uid];
+      const draft = {
+        enabled: !!k,
+        avatar: (k && k.avatar) || '🙂',
+        color: (k && k.color) || '#4CAF50',
+        birth_year: (k && k.birth_year) || '',
+        birthday: (k && k.birthday) || '',
+        approval_sample_rate: (k && parseInt(k.approval_sample_rate)) || 0,
+        pin: '',
+        clear_pin: false
+      };
+      // Do not cache before the stored profiles have been loaded
+      if (!this._settingsLoaded) return draft;
+      this._kidDrafts[uid] = draft;
+    }
+    return this._kidDrafts[uid];
+  }
+
+  /**
+   * Returns the date when it is a valid YYYY-MM-DD date that is not in the future, else null.
+   * @param {string} value - The value of a date input.
+   * @returns {string|null} - The valid date.
+   */
+  _validBirthday(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    if (!m) return null;
+    const dt = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (dt.getFullYear() !== +m[1] || dt.getMonth() !== +m[2] - 1 || dt.getDate() !== +m[3]) return null;
+    if (+m[1] < 1900 || dt > new Date()) return null;
+    return value;
+  }
+
+  /**
+   * Builds the websocket calls needed to persist the kid profile drafts.
+   * Only admins and managers may change profiles; only admins change the parents. Returns null when validation fails.
+   * @returns {Array<object>|null} - List of websocket payloads.
+   */
+  _collectKidCalls() {
+    const calls = [];
+    if (this._role() === 'admin' && this._parentsDraft) {
+      const st = this._parentsDraft;
+      calls.push({ type: 'task_organizer/set_parents', parents: [...st.parents], parents_manage: [...st.manage] });
+    }
+    if (!this._canManage()) return calls;
+    const stored = this.settings.kids || {};
+    for (const uid of Object.keys(this.users)) {
+      const d = this._kidDrafts[uid];
+      if (!d) continue; // never touched
+      if (d.enabled) {
+        if (d.pin && !/^\d{4}$/.test(d.pin)) {
+          alert(`${this.users[uid]}: ${this.localize('invalid_pin')}`);
+          return null;
+        }
+        const birthday = this._validBirthday(d.birthday);
+        if (d.birthday && !birthday) {
+          alert(`${this.users[uid]}: ${this.localize('invalid_birthday')}`);
+          return null;
+        }
+        const year = birthday ? parseInt(birthday.slice(0, 4)) : parseInt(d.birth_year);
+        const birthYear = (!isNaN(year) && year >= 1900 && year <= 2100) ? year : null;
+        const rate = Math.max(0, Math.min(100, parseInt(d.approval_sample_rate) || 0));
+        const old = stored[uid];
+        const changed = !old || old.avatar !== d.avatar || old.color !== d.color ||
+          (old.birth_year || null) !== birthYear || (old.birthday || null) !== (birthday || null) ||
+          (parseInt(old.approval_sample_rate) || 0) !== rate || !!d.pin || d.clear_pin;
+        if (changed) {
+          const payload = {
+            type: 'task_organizer/set_kid_profile',
+            participant_id: uid,
+            avatar: (d.avatar || '🙂').trim() || '🙂',
+            color: d.color,
+            birth_year: birthYear,
+            birthday: birthday || null,
+            approval_sample_rate: rate
+          };
+          if (d.pin) payload.pin = d.pin;
+          if (d.clear_pin) payload.clear_pin = true;
+          calls.push(payload);
+        }
+      } else if (stored[uid]) {
+        calls.push({ type: 'task_organizer/delete_kid_profile', participant_id: uid });
+      }
+    }
+    return calls;
+  }
+
+  /**
+   * Full (unprorated) monthly goals: changed or newly entered goals become their own full goal,
+   * untouched ones keep the full goal the wizard stored; goals that were cleared are dropped.
+   * @param {object} pointGoals - The goals as entered (participant ID -> points).
+   * @returns {object} - The new point_goals_full map.
+   */
+  _fullGoals(pointGoals) {
+    const stored = this.settings.point_goals || {};
+    const full = { ...(this.settings.point_goals_full || {}) };
+    for (const uid of Object.keys(full)) if (!(uid in pointGoals)) delete full[uid];
+    for (const [uid, value] of Object.entries(pointGoals)) {
+      if (stored[uid] !== value) full[uid] = value;
+    }
+    return full;
+  }
+
+  /**
    * Gathers modified settings from the UI and saves them via websocket.
    */
-  _saveSettings() { 
+  async _saveSettings() { 
     const pointGoals = {};
     this.shadowRoot.querySelectorAll('.user-goal-input').forEach(input => {
       const val = parseInt(input.value);
@@ -280,13 +585,57 @@ class TaskOrganizerSettings extends HTMLElement {
       if (tInput) this.settings[`transparency_${status}_${this._themeView}`] = parseInt(tInput.value);
     });
 
+    // Read ALL form values before the first await: saving a kid profile fires an
+    // update event which re-renders the card and would reset unsaved inputs.
     const newSettings = { 
       ...this.settings,
       overdue_days: parseInt(this.shadowRoot.getElementById('num-overdue').value),
-      point_goals: pointGoals
+      point_goals: pointGoals,
+      // A manually entered goal replaces the prorated start-month goal: it is also the full goal
+      point_goals_full: this._fullGoals(pointGoals)
     }; 
+    delete newSettings.kids;
+    // Triggers and the wizard memory are managed by dedicated admin-only commands
+    delete newSettings.bonus_triggers;
+    delete newSettings.wizard;
+    // Roles are changed by the admin-only set_parents command
+    delete newSettings.parents;
+    delete newSettings.parents_manage;
+
+    const fgPoints = this.shadowRoot.getElementById('fg-points');
+    if (fgPoints) {
+      newSettings.family_goal = {
+        points: Math.max(0, parseInt(fgPoints.value) || 0),
+        reward: (this.shadowRoot.getElementById('fg-reward')?.value || '').trim()
+      };
+      newSettings.claim_minutes = Math.max(1, parseInt(this.shadowRoot.getElementById('claim-minutes')?.value) || 10);
+      const num = (id, lo, hi, def) => {
+        const v = parseFloat(this.shadowRoot.getElementById(id)?.value);
+        return isNaN(v) ? def : Math.max(lo, Math.min(hi, v));
+      };
+      newSettings.cheat_penalty_factor = num('cheat-factor', 0, 2, 1);
+      newSettings.cheat_strict_days = Math.round(num('cheat-days', 0, 30, 7));
+      newSettings.birthday_bonus_points = Math.round(num('bday-bonus', 0, 50, 10));
+      newSettings.team_bonus = Math.round(num('team-bonus', 0, 3, 1));
+      newSettings.birthday_duty_free = !!this.shadowRoot.getElementById('bday-free')?.checked;
+      newSettings.expire_missed = !!this.shadowRoot.getElementById('expire-missed')?.checked;
+    }
+
+    // Kid profiles (incl. PINs) are stored by dedicated admin-only commands
+    const kidCalls = this._collectKidCalls();
+    if (kidCalls === null) return;
+    try {
+      for (const call of kidCalls) await this._hass.callWS(call);
+    } catch (err) {
+      alert(this.localize('kids_save_error') + (err && err.message ? err.message : ''));
+      return;
+    }
     
     this._hass.callWS({ type: 'task_organizer/update_settings', settings: newSettings }).then(() => { 
+      this._kidDrafts = {};
+      this._parentsDraft = null;
+      this._goalDrafts = {};
+      this._familyDraft = {};
       alert(this.localize('success')); 
       this._fetchData(); 
     }); 
@@ -329,7 +678,7 @@ class TaskOrganizerSettings extends HTMLElement {
     const path = ev.composedPath();
     const target = path.find(el =>
         (el.id && (el.id.startsWith('btn-') || el.id.startsWith('toggle-') || el.id === 'theme-toggle' || el.id.endsWith('-toggle'))) ||
-        (el.classList && (el.classList.contains('action-btn') || el.classList.contains('subtask-check')))
+        (el.classList && (el.classList.contains('action-btn') || el.classList.contains('subtask-check') || el.classList.contains('kid-emoji-pick')))
     );
 
     if (!target) return;
@@ -357,6 +706,17 @@ class TaskOrganizerSettings extends HTMLElement {
     else if (id === 'templates-toggle') { this._templatesOpen = !this._templatesOpen; this._render(); }
     else if (id === 'adv-toggle') { this._advancedOpen = !this._advancedOpen; this._render(); }
     else if (id === 'goals-toggle') { this._goalsOpen = !this._goalsOpen; this._render(); }
+    else if (id === 'kids-toggle') { this._kidsOpen = !this._kidsOpen; this._render(); }
+    else if (id === 'trig-toggle') { this._trigOpen = !this._trigOpen; this._render(); }
+    else if (id === 'btn-wizard-open') this._openWizard();
+    else if (id === 'btn-trig-add') this._addTrigger();
+    else if (target.classList.contains('btn-trig-del')) this._removeTrigger(parseInt(target.dataset.index));
+    else if (target.classList.contains('kid-emoji-pick')) {
+      if (this._canManage()) {
+        this._kidDraft(target.dataset.uid).avatar = target.dataset.emoji;
+        this._render();
+      }
+    }
     else if (id === 'btn-export') this._exportTasks();
     else if (id === 'btn-import-trigger') this._openImportModal();
     else if (id === 'btn-import-cancel') this._closeImportModal();
@@ -502,6 +862,12 @@ class TaskOrganizerSettings extends HTMLElement {
       complexity: parseInt(this.shadowRoot.getElementById('tmpl-complexity').value),
       icon: this.shadowRoot.getElementById('tmpl-icon').value,
       interval: parseInt(this.shadowRoot.getElementById('tmpl-interval').value),
+      category: this.shadowRoot.getElementById('tmpl-category').value || 'basis',
+      min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('tmpl-min-age').value) || 0)),
+      requires_approval: !!this.shadowRoot.getElementById('tmpl-approval')?.checked,
+      requires_routine: !!this.shadowRoot.getElementById('tmpl-routine')?.checked,
+      available_from: this.shadowRoot.getElementById('tmpl-available-from')?.value || '',
+      available_until: this.shadowRoot.getElementById('tmpl-available-until')?.value || '',
       assignees: assignees,
       subtasks: this._subtasks
     };
@@ -756,6 +1122,35 @@ class TaskOrganizerSettings extends HTMLElement {
         .collapsible-content { display: none; flex-direction: column; gap: 16px; padding: 8px 0 16px 0; }
         .subtask-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
         .subtask-list { display: flex; flex-direction: column; gap: 6px; }
+        .form-select { width: 100%; box-sizing: border-box; height: 56px; padding: 0 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color); font-family: inherit; font-size: 16px; }
+        .kids-note { font-size: 13px; color: var(--secondary-text-color); margin: 0; }
+        .kid-row { border: 1px solid var(--divider-color); border-left-width: 6px; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--card-background-color); }
+        .kid-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 500; font-size: 14px; color: var(--primary-text-color); }
+        .kid-head .kid-avatar-preview { font-size: 24px; margin-right: 8px; }
+        .kid-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+        .kid-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
+        .kid-field input[type="text"], .kid-field input[type="password"], .kid-field input[type="number"] { width: 100%; height: 36px; padding: 4px 8px; border: 1px solid var(--divider-color); border-radius: 6px; background: var(--primary-background-color); color: var(--primary-text-color); font-size: 14px; text-align: left; }
+        .kid-field input[type="color"] { width: 100%; height: 36px; }
+        .kid-slider { gap: 6px; }
+        .kid-slider input[type="range"] { width: 100%; accent-color: var(--primary-color); }
+        .kid-slider b { color: var(--primary-text-color); }
+        .kid-hint { font-size: 11px; opacity: 0.8; }
+        .kid-field input[type="date"] { width: 100%; height: 36px; padding: 4px 8px; border: 1px solid var(--divider-color); border-radius: 6px; background: var(--primary-background-color); color: var(--primary-text-color); font-size: 14px; box-sizing: border-box; }
+        .kid-emojis { display: flex; flex-wrap: wrap; gap: 4px; }
+        .kid-emoji-pick { background: transparent; border: 1px solid var(--divider-color); border-radius: 8px; font-size: 20px; width: 36px; height: 36px; cursor: pointer; padding: 0; }
+        .kid-emoji-pick.active { border-color: var(--primary-color); background: var(--secondary-background-color); }
+        .kid-emoji-pick:disabled { opacity: 0.5; cursor: default; }
+        .family-box { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--divider-color); padding-top: 12px; }
+        .family-box h4 { margin: 0; font-size: 14px; }
+        .parent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 6px 0; border-bottom: 1px solid var(--divider-color); }
+        .parent-name { flex: 1 1 140px; font-weight: 500; font-size: 14px; color: var(--primary-text-color); }
+        .parent-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--primary-text-color); }
+        .wizard-box { display: flex; flex-direction: column; gap: 6px; }
+        .btn-wizard { background: linear-gradient(135deg, #7E57C2, #2196F3); color: white; font-size: 15px; }
+        .trig-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px 8px 8px 12px; background: var(--card-background-color); }
+        .trig-text { flex: 1; min-width: 0; font-size: 13px; color: var(--secondary-text-color); overflow-wrap: anywhere; }
+        .trig-text b { color: var(--primary-text-color); font-size: 14px; display: block; }
+        .trig-add { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--divider-color); padding-top: 12px; }
         .btn-save { background: #2196F3; color: white; margin-top: 8px; } 
         .btn-reset { background: #FF9800; color: white; } 
         .btn-factory { background: #F44336; color: white; } 
@@ -763,6 +1158,432 @@ class TaskOrganizerSettings extends HTMLElement {
         .btn-import { background: #2196F3; color: white; }
       </style>
     `;
+  }
+
+  /**
+   * Current value of the monthly goal input of a person (draft first, then stored).
+   * @param {string} uid - Participant ID.
+   * @returns {string|number} - Value for the input.
+   */
+  _goalValue(uid) {
+    if (this._goalDrafts[uid] !== undefined) return this._goalDrafts[uid];
+    return this.settings.point_goals?.[uid] || '';
+  }
+
+  /**
+   * Renders the collapsible "Kids" section (kid profiles + family goal).
+   * @returns {string} - The HTML.
+   */
+  _renderKidsSection() {
+    const isAdmin = this._canManage();
+    const dis = isAdmin ? '' : 'disabled';
+    const emojis = ['🦊', '🐼', '🦁', '🐯', '🐸', '🐵', '🦄', '🐶', '🐱', '🐰', '🐻', '🐧', '🚀'];
+    const fg = this.settings.family_goal || {};
+    const fd = this._familyDraft;
+    const fgPointsVal = fd.points !== undefined ? fd.points : (fg.points || '');
+    const fgRewardVal = fd.reward !== undefined ? fd.reward : (fg.reward || '');
+    const claimVal = fd.claim !== undefined ? fd.claim : (this.settings.claim_minutes || 10);
+    const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+    const rows = Object.entries(this.users).map(([uid, name]) => {
+      const d = this._kidDraft(uid);
+      const stored = (this.settings.kids || {})[uid];
+      const hasPin = !!(stored && stored.has_pin);
+      return `
+        <div class="kid-row" style="${d.enabled ? `border-left-color: ${esc(d.color)};` : ''}">
+          <div class="kid-head">
+            <span>${d.enabled ? `<span class="kid-avatar-preview">${esc(d.avatar)}</span>` : ''}${esc(name)}</span>
+            <ha-formfield label="${this.localize('kid_enable')}">
+              <ha-switch class="kid-enabled" data-uid="${esc(uid)}" ${d.enabled ? 'checked' : ''} ${dis}></ha-switch>
+            </ha-formfield>
+          </div>
+          ${d.enabled ? `
+            <div class="kid-emojis">
+              ${emojis.map(e => `<button class="kid-emoji-pick ${d.avatar === e ? 'active' : ''}" data-uid="${esc(uid)}" data-emoji="${e}" ${dis}>${e}</button>`).join('')}
+            </div>
+            <div class="kid-fields">
+              <label class="kid-field">${this.localize('kid_avatar')}
+                <input type="text" class="kid-avatar" data-uid="${esc(uid)}" maxlength="8" value="${esc(d.avatar)}" ${dis}>
+              </label>
+              <label class="kid-field">${this.localize('kid_color')}
+                <input type="color" class="kid-color" data-uid="${esc(uid)}" value="${esc(d.color)}" ${dis}>
+              </label>
+              <label class="kid-field" style="grid-column:1 / -1">${this.localize('kid_birthday')}
+                ${toSetBdayHtml(esc(d.birthday), `class="kid-birthday" data-uid="${esc(uid)}"`, (this._hass?.language || 'en').slice(0, 2), !!dis)}
+              </label>
+              <label class="kid-field">${this.localize('kid_birth_year_fallback')}
+                <input type="number" class="kid-birth" data-uid="${esc(uid)}" min="1900" max="2100" placeholder="2015"
+                       value="${esc(this._validBirthday(d.birthday) ? d.birthday.slice(0, 4) : d.birth_year)}" ${this._validBirthday(d.birthday) ? 'disabled' : dis}>
+              </label>
+              <label class="kid-field">${this.localize('kid_goal')}
+                <input type="number" class="user-goal-input" data-uid="${esc(uid)}" min="0" placeholder="0" value="${esc(this._goalValue(uid))}">
+              </label>
+              <label class="kid-field">${this.localize('kid_pin')}
+                <input type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" class="kid-pin" data-uid="${esc(uid)}" value="${esc(d.pin)}"
+                       placeholder="${hasPin ? this.localize('kid_pin_set') : this.localize('kid_pin_none')}" ${dis}>
+              </label>
+              ${hasPin ? `
+                <ha-formfield label="${this.localize('kid_pin_clear')}">
+                  <ha-checkbox class="kid-clear-pin" data-uid="${esc(uid)}" ${d.clear_pin ? 'checked' : ''} ${dis}></ha-checkbox>
+                </ha-formfield>` : ''}
+            </div>
+            <label class="kid-field kid-slider" title="${esc(this.localize('kid_sample_hint'))}">
+              <span class="kid-sample-label">${this.localize('kid_sample').replace('{n}', `<b>${d.approval_sample_rate}</b>`)}</span>
+              <input type="range" class="kid-sample" data-uid="${esc(uid)}" min="0" max="100" step="5" value="${esc(d.approval_sample_rate)}" ${dis}>
+              <span class="kid-hint">${this.localize('kid_sample_hint')}</span>
+            </label>` : ''}
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="section-card">
+          <div class="section-header" id="kids-toggle">
+            <div class="section-title">
+              <ha-icon icon="${this._kidsOpen ? 'mdi:chevron-up' : 'mdi:chevron-right'}"></ha-icon>
+              <span>${this.localize('kids_title')}</span>
+            </div>
+          </div>
+          <div class="section-content ${this._kidsOpen ? 'open' : ''}" id="kids-content">
+            <p class="kids-note">${this.localize('kids_desc')}</p>
+            ${isAdmin ? '' : `<p class="kids-note" style="color: var(--warning-color, #FFA000);">${this.localize('kids_admin_only')}</p>`}
+            ${isAdmin ? `
+              <div class="wizard-box">
+                <button class="btn btn-wizard" id="btn-wizard-open">${this.localize('wizard_btn')}</button>
+                <p class="kids-note">${this.localize('wizard_hint')}</p>
+              </div>` : ''}
+            ${rows}
+            ${this._renderParentsSection()}
+            <div class="family-box">
+              <h4>${this.localize('family_goal')}</h4>
+              <div class="kid-fields">
+                <label class="kid-field">${this.localize('family_goal_points')}
+                  <input type="number" id="fg-points" min="0" placeholder="0" value="${esc(fgPointsVal)}">
+                </label>
+                <label class="kid-field">${this.localize('family_goal_reward')}
+                  <input type="text" id="fg-reward" maxlength="80" placeholder="${this.localize('family_goal_reward_ph')}" value="${esc(fgRewardVal)}">
+                </label>
+                <label class="kid-field">${this.localize('claim_minutes')}
+                  <input type="number" id="claim-minutes" min="1" max="240" value="${esc(claimVal)}">
+                </label>
+              </div>
+              <ha-formfield label="${this.localize('expire_missed')}">
+                <ha-switch id="expire-missed" ${(fd.expire_missed !== undefined ? fd.expire_missed : this.settings.expire_missed !== false) ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
+            </div>
+            <div class="family-box">
+              <h4>${this.localize('approval_title')}</h4>
+              <div class="kid-fields">
+                <label class="kid-field">${this.localize('cheat_penalty_factor')}
+                  <input type="number" id="cheat-factor" min="0" max="2" step="0.5" value="${esc(fd.cheat_factor !== undefined ? fd.cheat_factor : (this.settings.cheat_penalty_factor !== undefined ? this.settings.cheat_penalty_factor : 1))}">
+                </label>
+                <label class="kid-field">${this.localize('cheat_strict_days')}
+                  <input type="number" id="cheat-days" min="0" max="30" step="1" value="${esc(fd.cheat_days !== undefined ? fd.cheat_days : (this.settings.cheat_strict_days !== undefined ? this.settings.cheat_strict_days : 7))}">
+                </label>
+              </div>
+            </div>
+            <div class="family-box">
+              <h4>👫 ${this.localize('team_title')}</h4>
+              <div class="kid-fields">
+                <label class="kid-field">${this.localize('team_bonus')}
+                  <input type="number" id="team-bonus" min="0" max="3" step="1" value="${esc(fd.team_bonus !== undefined ? fd.team_bonus : (this.settings.team_bonus !== undefined ? this.settings.team_bonus : 1))}">
+                </label>
+              </div>
+            </div>
+            <div class="family-box">
+              <h4>🎂 ${this.localize('birthday_title')}</h4>
+              <div class="kid-fields">
+                <label class="kid-field">${this.localize('birthday_bonus_points')}
+                  <input type="number" id="bday-bonus" min="0" max="50" step="1" value="${esc(fd.bday_bonus !== undefined ? fd.bday_bonus : (this.settings.birthday_bonus_points !== undefined ? this.settings.birthday_bonus_points : 10))}">
+                </label>
+              </div>
+              <ha-formfield label="${this.localize('birthday_duty_free')}">
+                <ha-switch id="bday-free" ${(fd.bday_free !== undefined ? fd.bday_free : this.settings.birthday_duty_free !== false) ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
+            </div>
+          </div>
+        </div>`;
+  }
+
+  /**
+   * Renders the "Parents" subsection: who may approve (parent) and who may also manage.
+   * Only administrators can change it.
+   * @returns {string} - The HTML.
+   */
+  _renderParentsSection() {
+    const canEdit = this._role() === 'admin';
+    const st = this._parentsState();
+    const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const rows = this._parentRows().map(({ uid, name }) => {
+      const isManager = st.manage.has(uid);
+      const isParent = st.parents.has(uid) || isManager;
+      return `
+        <div class="parent-row">
+          <span class="parent-name">${esc(name)}</span>
+          <label class="parent-check"><input type="checkbox" class="parent-parent" data-uid="${esc(uid)}" ${isParent ? 'checked' : ''} ${canEdit && !isManager ? '' : 'disabled'}> ${this.localize('parents_col_parent')}</label>
+          <label class="parent-check"><input type="checkbox" class="parent-manage" data-uid="${esc(uid)}" ${isManager ? 'checked' : ''} ${canEdit ? '' : 'disabled'}> ${this.localize('parents_col_manage')}</label>
+        </div>`;
+    }).join('');
+    return `
+            <div class="family-box" id="parents-box">
+              <h4>${this.localize('parents_title')}</h4>
+              <p class="kids-note">${this.localize('parents_desc')}</p>
+              <p class="kids-note" style="color: var(--warning-color, #FFA000);">⚠️ ${this.localize('parents_warn')}</p>
+              ${canEdit ? '' : `<p class="kids-note">${this.localize('parents_admin_only')}</p>`}
+              ${rows || `<p class="kids-note">${this.localize('parents_none')}</p>`}
+            </div>`;
+  }
+
+  /**
+   * Makes sure the wizard / trigger picker elements are defined. They live in
+   * task-organizer-wizard.js, which the integration registers as a resource;
+   * the dynamic import is the fallback for manually managed resources.
+   * @returns {Promise<boolean>} - True when the elements are available.
+   */
+  async _ensureWizardLoaded() {
+    if (customElements.get('task-organizer-wizard')) return true;
+    try {
+      await import('/task_organizer_frontend/task-organizer-wizard.js');
+    } catch (err) {
+      console.warn('TaskOrganizer: wizard could not be loaded', err);
+    }
+    return !!customElements.get('task-organizer-wizard');
+  }
+
+  /**
+   * Opens the kids mode quick-start wizard (admins and managers).
+   */
+  async _openWizard() {
+    if (!this._canManage()) return;
+    if (!(await this._ensureWizardLoaded())) {
+      alert(this.localize('wizard_missing'));
+      return;
+    }
+    if (this._wizard) this._wizard.remove();
+    const wizard = document.createElement('task-organizer-wizard');
+    wizard.addEventListener('wizard-closed', () => {
+      this._wizard = null;
+      this._kidDrafts = {};
+      this._goalDrafts = {};
+      this._familyDraft = {};
+      this._fetchData();
+    });
+    document.body.appendChild(wizard);
+    this._wizard = wizard;
+    wizard.open(this._hass);
+  }
+
+  /**
+   * Open bonus tasks that a trigger can be attached to.
+   * @returns {Array<object>} - The bonus tasks.
+   */
+  _bonusTasks() {
+    return Object.values(this.tasks || {})
+      // Bonus tasks; unassigned tasks qualify too (open for every kid)
+      .filter(t => t.category === 'bonus' || !(Array.isArray(t.assignees) && t.assignees.length))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
+
+  /**
+   * Resolves the task of a stored trigger (by task_id or wizard_key).
+   * @param {object} trig - The trigger.
+   * @returns {object|null} - The task.
+   */
+  _triggerTask(trig) {
+    const tasks = Object.values(this.tasks || {});
+    if (trig.task_id) return this.tasks[trig.task_id] || null;
+    return tasks.find(t => t.wizard_key && t.wizard_key === trig.wizard_key) || null;
+  }
+
+  /**
+   * Renders the collapsible "Bonus triggers" section.
+   * @returns {string} - The HTML.
+   */
+  _renderTriggersSection() {
+    const isAdmin = this._canManage();
+    const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const triggers = this.settings.bonus_triggers || [];
+    const entityName = (id) => {
+      const st = this._hass && this._hass.states && this._hass.states[id];
+      return (st && st.attributes && st.attributes.friendly_name) || id;
+    };
+    const rows = triggers.map((trig, i) => {
+      const task = this._triggerTask(trig);
+      return `
+        <div class="trig-row">
+          <div class="trig-text"><b>${esc(task ? task.name : (trig.wizard_key || trig.task_id))}</b>
+            ${esc(this.localize('trig_when').replace('{entity}', entityName(trig.entity_id)).replace('{state}', trig.to_state))}</div>
+          <button class="action-btn btn-trig-del" data-index="${i}" title="${this.localize('trig_remove')}" ${isAdmin ? '' : 'disabled'}><ha-icon icon="mdi:delete"></ha-icon></button>
+        </div>`;
+    }).join('');
+    const d = this._trigDraft;
+    return `
+        <div class="section-card">
+          <div class="section-header" id="trig-toggle">
+            <div class="section-title">
+              <ha-icon icon="${this._trigOpen ? 'mdi:chevron-up' : 'mdi:chevron-right'}"></ha-icon>
+              <span>${this.localize('triggers_title')}</span>
+            </div>
+          </div>
+          <div class="section-content ${this._trigOpen ? 'open' : ''}" id="trig-content">
+            <p class="kids-note">${this.localize('triggers_desc')}</p>
+            ${rows || `<p class="kids-note">${this.localize('trig_none')}</p>`}
+            ${isAdmin ? `
+              <div class="trig-add">
+                <label class="kid-field">${this.localize('trig_task')}
+                  <select class="form-select" id="trig-task" style="height: 38px; font-size: 14px;">
+                    <option value="">${this.localize('trig_pick_task')}</option>
+                    ${this._bonusTasks().map(t => `<option value="${esc(t.id)}" ${d.task === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
+                  </select>
+                </label>
+                ${this._bonusTasks().length ? '' : `<p class="kids-note">${this.localize('trig_no_bonus')}</p>`}
+                <task-organizer-trigger-picker id="trig-picker"></task-organizer-trigger-picker>
+                <button class="btn btn-save" id="btn-trig-add" style="margin-top: 0;" ${d.task && d.entity_id && d.to_state ? '' : 'disabled'}>${this.localize('trig_add')}</button>
+              </div>` : ''}
+          </div>
+        </div>`;
+  }
+
+  /**
+   * Wires the picker and the task select of the triggers section.
+   */
+  _bindTriggerInputs() {
+    const root = this.shadowRoot;
+    const picker = root.getElementById('trig-picker');
+    if (!picker) return;
+    const update = () => {
+      const btn = root.getElementById('btn-trig-add');
+      const d = this._trigDraft;
+      if (btn) btn.disabled = !(d.task && d.entity_id && d.to_state);
+    };
+    this._ensureWizardLoaded().then((ok) => {
+      if (!ok) return;
+      picker.hass = this._hass;
+      picker.value = this._trigDraft;
+      picker.addEventListener('change', (ev) => {
+        Object.assign(this._trigDraft, ev.detail);
+        update();
+      });
+    });
+    const sel = root.getElementById('trig-task');
+    if (sel) sel.addEventListener('change', (ev) => { this._trigDraft.task = ev.target.value; update(); });
+  }
+
+  /**
+   * Stores the list of bonus triggers via the admin-only websocket command.
+   * @param {Array<object>} triggers - The complete new list.
+   * @returns {Promise<boolean>} - True on success.
+   */
+  async _saveTriggers(triggers) {
+    try {
+      await this._hass.callWS({ type: 'task_organizer/set_bonus_triggers', triggers });
+      return true;
+    } catch (err) {
+      alert(this.localize('trig_error') + (err && err.message ? err.message : ''));
+      return false;
+    }
+  }
+
+  /**
+   * Adds the trigger of the draft form.
+   */
+  async _addTrigger() {
+    const d = this._trigDraft;
+    const task = this.tasks[d.task];
+    if (!task || !d.entity_id || !d.to_state) return;
+    const trig = { entity_id: d.entity_id, to_state: d.to_state };
+    // Wizard tasks are referenced by their key: it survives re-creation by the wizard
+    if (task.wizard_key) trig.wizard_key = task.wizard_key; else trig.task_id = task.id;
+    const list = [...(this.settings.bonus_triggers || []), trig];
+    if (await this._saveTriggers(list)) {
+      this.settings.bonus_triggers = list;
+      this._trigDraft = { task: '', entity_id: '', to_state: '', filter: '' };
+      this._render();
+    }
+  }
+
+  /**
+   * Removes a trigger.
+   * @param {number} index - Index in the trigger list.
+   */
+  async _removeTrigger(index) {
+    const list = (this.settings.bonus_triggers || []).filter((_, i) => i !== index);
+    if (await this._saveTriggers(list)) {
+      this.settings.bonus_triggers = list;
+      this._render();
+    }
+  }
+
+  /**
+   * Wires the inputs of the kids section to the drafts (no re-render while typing).
+   */
+  _bindKidInputs() {
+    const root = this.shadowRoot;
+    root.querySelectorAll('.kid-enabled').forEach(el => el.addEventListener('change', (ev) => {
+      this._kidDraft(el.dataset.uid).enabled = !!ev.target.checked;
+      this._render();
+    }));
+    root.querySelectorAll('.parent-parent').forEach(el => el.addEventListener('change', (ev) => {
+      const st = this._parentsEdit();
+      if (ev.target.checked) st.parents.add(el.dataset.uid); else { st.parents.delete(el.dataset.uid); st.manage.delete(el.dataset.uid); }
+      this._render();
+    }));
+    root.querySelectorAll('.parent-manage').forEach(el => el.addEventListener('change', (ev) => {
+      const st = this._parentsEdit();
+      if (ev.target.checked) { st.manage.add(el.dataset.uid); st.parents.add(el.dataset.uid); } else st.manage.delete(el.dataset.uid);
+      this._render();
+    }));
+    const bind = (selector, key, transform = (v) => v) => {
+      root.querySelectorAll(selector).forEach(el => el.addEventListener('input', (ev) => {
+        this._kidDraft(el.dataset.uid)[key] = transform(ev.target.value);
+      }));
+    };
+    bind('.kid-avatar', 'avatar');
+    bind('.kid-color', 'color');
+    bind('.kid-birth', 'birth_year');
+    toSetBdayBind(root);
+    root.querySelectorAll('.kid-birthday').forEach(el => el.addEventListener('input', (ev) => {
+      // A valid birthday determines the birth year (the year input is then read-only)
+      const draft = this._kidDraft(el.dataset.uid);
+      draft.birthday = ev.target.value;
+      const valid = this._validBirthday(draft.birthday);
+      const yearEl = root.querySelector(`.kid-birth[data-uid="${el.dataset.uid}"]`);
+      if (yearEl) {
+        yearEl.disabled = !!valid || !this._canManage();
+        if (valid) yearEl.value = valid.slice(0, 4);
+      }
+    }));
+    root.querySelectorAll('.kid-sample').forEach(el => el.addEventListener('input', (ev) => {
+      const v = parseInt(ev.target.value) || 0;
+      this._kidDraft(el.dataset.uid).approval_sample_rate = v;
+      const label = el.parentElement.querySelector('.kid-sample-label');
+      if (label) label.innerHTML = this.localize('kid_sample').replace('{n}', `<b>${v}</b>`);
+    }));
+    root.querySelectorAll('.kid-pin').forEach(el => el.addEventListener('input', (ev) => {
+      const digits = ev.target.value.replace(/\D/g, '').slice(0, 4);
+      if (digits !== ev.target.value) ev.target.value = digits;
+      this._kidDraft(el.dataset.uid).pin = digits;
+    }));
+    root.querySelectorAll('.kid-clear-pin').forEach(el => el.addEventListener('change', (ev) => {
+      this._kidDraft(el.dataset.uid).clear_pin = !!ev.target.checked;
+    }));
+    root.querySelectorAll('.user-goal-input').forEach(el => el.addEventListener('input', (ev) => {
+      this._goalDrafts[el.dataset.uid] = ev.target.value;
+    }));
+    const fam = (id, key) => {
+      const el = root.getElementById(id);
+      if (el) el.addEventListener('input', (ev) => { this._familyDraft[key] = ev.target.value; });
+    };
+    fam('fg-points', 'points');
+    fam('fg-reward', 'reward');
+    fam('claim-minutes', 'claim');
+    fam('cheat-factor', 'cheat_factor');
+    fam('cheat-days', 'cheat_days');
+    fam('bday-bonus', 'bday_bonus');
+    fam('team-bonus', 'team_bonus');
+    const bdayFree = root.getElementById('bday-free');
+    if (bdayFree) bdayFree.addEventListener('change', (ev) => { this._familyDraft.bday_free = !!ev.target.checked; });
+    const expire = root.getElementById('expire-missed');
+    if (expire) expire.addEventListener('change', (ev) => { this._familyDraft.expire_missed = !!ev.target.checked; });
   }
 
   /**
@@ -894,7 +1715,7 @@ class TaskOrganizerSettings extends HTMLElement {
                               <ha-icon icon="mdi:numeric-1-circle-outline" style="--mdc-icon-size: 14px; opacity: 0.7; flex-shrink: 0;" title="${this.localize('onetime')}"></ha-icon>
                           ` : ''}
                       </div>
-                      <div class="template-meta">${t.area || ''}</div>
+                      <div class="template-meta">${t.area ? t.area + ' • ' : ''}${this.localize('cat_' + (['basis','bonus','auftrag'].includes(t.category) ? t.category : 'basis'))}${t.min_age > 0 ? ' • ' + this.localize('min_age_short').replace('{age}', t.min_age) : ''}${t.requires_approval ? ' • 🔍' : ''}</div>
                     </div>
                   </div>
                   <div class="template-actions">
@@ -915,15 +1736,19 @@ class TaskOrganizerSettings extends HTMLElement {
             </div>
           </div>
           <div class="section-content ${this._goalsOpen ? 'open' : ''}" id="goals-content">
-            ${Object.entries(this.users).map(([uid, name]) => `
+            ${Object.entries(this.users).filter(([uid]) => !this._kidDraft(uid).enabled).map(([uid, name]) => `
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span style="font-weight: 500; font-size: 14px; color: var(--primary-text-color);">${name}</span>
                 <input type="number" class="user-goal-input" data-uid="${uid}" 
-                       value="${this.settings.point_goals?.[uid] || ''}" placeholder="0">
+                       value="${this._goalValue(uid)}" placeholder="0">
               </div>
             `).join('')}
           </div>
         </div>
+
+        ${this._renderKidsSection()}
+
+        ${this._renderTriggersSection()}
 
         ${showAdvanced ? `
           <div class="section-card">
@@ -966,6 +1791,32 @@ class TaskOrganizerSettings extends HTMLElement {
                       <ha-area-picker id="tmpl-area" value="${template?.area || ''}"></ha-area-picker>
                   </div>
               </div>
+
+              <div class="form-row">
+                  <div class="form-col">
+                      <label class="form-label" for="tmpl-category">${this.localize('category_lbl')}</label>
+                      <select id="tmpl-category" class="form-select">
+                          ${['basis', 'bonus', 'auftrag'].map(c => `<option value="${c}" ${(template?.category || 'basis') === c ? 'selected' : ''}>${this.localize('cat_' + c)}</option>`).join('')}
+                      </select>
+                  </div>
+                  <ha-input id="tmpl-min-age" type="number" min="0" max="18" label="${this.localize('min_age_lbl')}" value="${template?.min_age || 0}" class="form-col"></ha-input>
+              </div>
+              <div class="form-row">
+                  <div class="form-col">
+                      <label class="form-label" for="tmpl-available-from">${this.localize('available_from_lbl')}</label>
+                      <select id="tmpl-available-from" class="form-select">${toSetTTimeOptions(template?.available_from || '', '—')}</select>
+                  </div>
+                  <div class="form-col">
+                      <label class="form-label" for="tmpl-available-until">${this.localize('available_until_lbl')}</label>
+                      <select id="tmpl-available-until" class="form-select">${toSetTTimeOptions(template?.available_until || '', '—')}</select>
+                  </div>
+              </div>
+              <ha-formfield label="${this.localize('approval_lbl')}">
+                  <ha-switch id="tmpl-approval" ${template?.requires_approval ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
+              <ha-formfield label="${this.localize('routine_lbl')}">
+                  <ha-switch id="tmpl-routine" ${template?.requires_routine ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
 
               <div>
                   <label class="form-label">${this.localize('assignees_lbl')}</label>
@@ -1063,6 +1914,9 @@ class TaskOrganizerSettings extends HTMLElement {
         this.settings[`color_${status}_${this._themeView}`] = ev.target.value;
       });
     });
+
+    this._bindKidInputs();
+    this._bindTriggerInputs();
 
     if (this._templateModalOpen) {
       const iconPicker = this.shadowRoot.getElementById('tmpl-icon');

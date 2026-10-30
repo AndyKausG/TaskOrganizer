@@ -15,6 +15,7 @@ const I18N_CARD = {
     assignees_lbl: "Assignees", select_one: "Please select at least one person!", 
     task_type: "Task Type", onetime: "One-time", recurring: "Recurring",
     recreate_task_prompt: "Create '{taskName}' from a template?",
+    from_template_lbl: "From template", from_template_ph: "— choose a template (optional) —",
     set_due_today: "Set due date", pause_until: "Pause until", paused: "Paused until {date}", due_date_lbl: "Due Date", area_lbl: "Area", area_placeholder: "e.g. Kitchen",
     override_overdue_lbl: "Task specific overdue", override_overdue_days_placeholder: "Days",
     time_settings: "Time Settings", subtasks: "Subtasks", 
@@ -39,6 +40,9 @@ const I18N_CARD = {
     filter_by_lbl: "Filter By",
     filter_by_placeholder: "comma separated, e.g. !paused, due",
     search_btn: "Search", add_task_btn: "Add Task", clear_btn: "Clear",
+    category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
+    min_age_lbl: "Minimum age (0 = any)", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
+    available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
     help_link: "Configuration Guide (README)"
   },
   de: { 
@@ -52,6 +56,7 @@ const I18N_CARD = {
     assignees_lbl: "Bearbeiter", select_one: "Bitte mindestens eine Person auswählen!", 
     task_type: "Aufgabentyp", onetime: "Einmalig", recurring: "Wiederkehrend",
     recreate_task_prompt: "Möchtest du '{taskName}' aus einer Vorlage erstellen?",
+    from_template_lbl: "Aus Vorlage", from_template_ph: "— Vorlage wählen (optional) —",
     set_due_today: "Fälligkeit setzen", pause_until: "Pausieren bis", paused: "Pausiert bis {date}", due_date_lbl: "Fälligkeit", area_lbl: "Bereich", area_placeholder: "z.B. Küche",
     override_overdue_lbl: "Aufgabenspezifische Überfälligkeit", override_overdue_days_placeholder: "Tage",
     time_settings: "Zeiteinstellungen", subtasks: "Unteraufgaben",
@@ -76,6 +81,9 @@ const I18N_CARD = {
     filter_by_lbl: "Filtern nach",
     filter_by_placeholder: "Kommagetrennt, z.B. !paused, due",
     search_btn: "Suchen", add_task_btn: "Aufgabe hinzufügen", clear_btn: "Leeren",
+    category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
+    min_age_lbl: "Mindestalter (0 = egal)", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
+    available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
     help_link: "Konfigurations-Handbuch (README)"
   }
 };
@@ -90,6 +98,20 @@ window.customCards.push({
   description: "A custom list card to display and manage household tasks.",
   preview: true,
 });
+
+/**
+ * Options for a time select ("HH:MM", 15-minute steps). Used instead of
+ * <input type="time">, whose native picker crashes some browsers (Safari)
+ * inside the dialogs. A value outside the steps is kept as its own option.
+ */
+function toCardTimeOptions(value, emptyLabel) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const times = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  if (v && !times.includes(v)) { times.push(v); times.sort(); }
+  return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
+    times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
 
 class TaskOrganizerCard extends HTMLElement {
   /**
@@ -266,16 +288,26 @@ class TaskOrganizerCard extends HTMLElement {
   }
 
   /**
+   * Participant ID of a person entity: the linked HA user_id if present,
+   * otherwise the person entity_id (persons without a user account, e.g. kids).
+   * @param {string} entityId - The person entity_id.
+   * @param {object} state - The person state object.
+   * @returns {string} - The participant ID used for points/history/assignees.
+   */
+  static participantId(entityId, state) {
+    return (state && state.attributes && state.attributes.user_id) || entityId;
+  }
+
+  /**
    * Maps Home Assistant 'person' entities to the local users object.
+   * Persons without an HA user are keyed by their entity_id.
    */
   _mapUsers() {
     const users = {};
     for (const entityId in this._hass.states) {
       if (entityId.startsWith('person.')) {
         const state = this._hass.states[entityId];
-        if (state.attributes.user_id) {
-            users[state.attributes.user_id] = state.attributes.friendly_name || entityId;
-        }
+        users[TaskOrganizerCard.participantId(entityId, state)] = state.attributes.friendly_name || entityId;
       }
     }
     this.users = users;
@@ -981,6 +1013,7 @@ class TaskOrganizerCard extends HTMLElement {
             this.shadowRoot.getElementById('f-interval').value = (t.interval !== undefined) ? t.interval : 7;
         }
         if (this.shadowRoot.getElementById('f-complexity')) this.shadowRoot.getElementById('f-complexity').value = t.complexity;
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
         this._subtasks = t.subtasks ? [...t.subtasks] : [];
         this._currentIcon = t.icon || "mdi:broom";
         
@@ -991,6 +1024,7 @@ class TaskOrganizerCard extends HTMLElement {
         const isOnetime = t.interval === 0;
         this._updateTaskTypeUI(isOnetime);
         this.shadowRoot.getElementById('template-suggestions').style.display = 'none';
+        this._fillTemplateSelect(false);
         
         const now = new Date();
         now.setHours(0, 0, 0, 0); 
@@ -1010,12 +1044,14 @@ class TaskOrganizerCard extends HTMLElement {
         this.shadowRoot.getElementById('f-area').value = "";
         this.shadowRoot.getElementById('f-interval').value = 7;
         this.shadowRoot.getElementById('f-complexity').value = 5; 
+        this._setCategoryFields('basis', 0, false);
         this._currentIcon = "mdi:broom";
         this._subtasks = [];
         
         this._updateTaskTypeUI(false); // Default to recurring
         this.shadowRoot.getElementById('template-suggestions').style.display = 'block';
         this.shadowRoot.getElementById('template-suggestions').innerHTML = '';
+        this._fillTemplateSelect(true);
         this.shadowRoot.querySelectorAll('.assignee-cb').forEach(cb => cb.checked = false);        
 
         this.shadowRoot.getElementById('f-pause-cb').checked = false;
@@ -1069,6 +1105,53 @@ class TaskOrganizerCard extends HTMLElement {
     if (picker) picker.value = this._currentIcon; 
     
     modal.classList.add('open');
+  }
+
+  /**
+   * Fills the "From template" dropdown of the task editor. It is only shown
+   * when a new task is created and at least one template exists.
+   * @param {boolean} isNew - True when creating a new task.
+   */
+  _fillTemplateSelect(isNew) {
+    const wrap = this.shadowRoot.getElementById('template-select-wrap');
+    const sel = this.shadowRoot.getElementById('f-template');
+    if (!wrap || !sel) return;
+    const templates = Object.values(this.templates || {}).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    wrap.style.display = isNew && templates.length > 0 ? 'block' : 'none';
+    sel.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = this.localize('from_template_ph');
+    sel.appendChild(placeholder);
+    templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        sel.appendChild(opt);
+    });
+    sel.value = '';
+  }
+
+  /**
+   * Fills the kids-mode fields (category, minimum age, approval) of the task editor.
+   * Legacy/unknown categories (e.g. "Allgemein") are shown as "basis".
+   * @param {string} category - basis | bonus | auftrag.
+   * @param {number} minAge - Minimum age in years (0 = any).
+   * @param {boolean} requiresApproval - A parent has to approve completions by kids.
+   */
+  _setCategoryFields(category, minAge, requiresApproval = false, availableFrom = null, availableUntil = null, requiresRoutine = false) {
+    const routine = this.shadowRoot.getElementById('f-routine');
+    if (routine) routine.checked = !!requiresRoutine;
+    const from = this.shadowRoot.getElementById('f-available-from');
+    const until = this.shadowRoot.getElementById('f-available-until');
+    if (from) from.innerHTML = toCardTimeOptions(availableFrom || '', '—');
+    if (until) until.innerHTML = toCardTimeOptions(availableUntil || '', '—');
+    const sel = this.shadowRoot.getElementById('f-category');
+    const age = this.shadowRoot.getElementById('f-min-age');
+    const approval = this.shadowRoot.getElementById('f-approval');
+    if (approval) approval.checked = !!requiresApproval;
+    if (sel) sel.value = ['basis', 'bonus', 'auftrag'].includes(category) ? category : 'basis';
+    if (age) age.value = Number.isFinite(parseInt(minAge)) ? parseInt(minAge) : 0;
   }
 
   /**
@@ -1180,7 +1263,13 @@ class TaskOrganizerCard extends HTMLElement {
       interval: isOnetime ? 0 : parseInt(this.shadowRoot.getElementById('f-interval')?.value) || 7,
       complexity: parseInt(this.shadowRoot.getElementById('f-complexity')?.value) || 5, 
       icon: this.shadowRoot.getElementById('f-icon-picker')?.value || "mdi:broom",
-      category: "Allgemein", 
+      category: this.shadowRoot.getElementById('f-category')?.value || "basis",
+      min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('f-min-age')?.value) || 0)),
+      requires_approval: !!this.shadowRoot.getElementById('f-approval')?.checked,
+      requires_routine: !!this.shadowRoot.getElementById('f-routine')?.checked,
+      // time window for kids ("" = no limit); the backend stores an empty value as "no limit"
+      available_from: this.shadowRoot.getElementById('f-available-from')?.value || "",
+      available_until: this.shadowRoot.getElementById('f-available-until')?.value || "",
       assignees: assignees,
       custom_due_date: customDueDate,
       paused_until: pausedUntil,
@@ -1272,6 +1361,7 @@ class TaskOrganizerCard extends HTMLElement {
           .type-btn.active { background: var(--primary-color); color: var(--text-primary-color, white); }
           .form-row { display: flex; gap: 16px; }
           .form-col { flex: 1; }
+          .form-select { width: 100%; box-sizing: border-box; height: 56px; padding: 0 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color); font-family: inherit; font-size: 16px; }
           .template-suggestions { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
           .suggestion-item { background: transparent; border: none; color: var(--primary-color); cursor: pointer; text-align: left; padding: 4px 0; font-size: 14px; }
           .suggestion-item:hover { text-decoration: underline; }
@@ -1351,6 +1441,10 @@ class TaskOrganizerCard extends HTMLElement {
                 </div>
 
                 <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div id="template-select-wrap" style="display: none;">
+                        <label class="form-label" for="f-template">${this.localize('from_template_lbl')}</label>
+                        <select id="f-template" class="form-select"></select>
+                    </div>
                     <div>
                         <ha-input id="f-name" label="${this.localize('name_lbl')}" style="width: 100%;"></ha-input>
                         <div id="template-suggestions"></div>
@@ -1372,6 +1466,34 @@ class TaskOrganizerCard extends HTMLElement {
                             <ha-area-picker id="f-area"></ha-area-picker>
                         </div>
                     </div>
+
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label class="form-label" for="f-category">${this.localize('category_lbl')}</label>
+                            <select id="f-category" class="form-select">
+                                <option value="basis">${this.localize('cat_basis')}</option>
+                                <option value="bonus">${this.localize('cat_bonus')}</option>
+                                <option value="auftrag">${this.localize('cat_auftrag')}</option>
+                            </select>
+                        </div>
+                        <ha-input id="f-min-age" type="number" min="0" max="18" label="${this.localize('min_age_lbl')}" class="form-col"></ha-input>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-col">
+                            <label class="form-label" for="f-available-from">${this.localize('available_from_lbl')}</label>
+                            <select id="f-available-from" class="form-select">${toCardTimeOptions('', '—')}</select>
+                        </div>
+                        <div class="form-col">
+                            <label class="form-label" for="f-available-until">${this.localize('available_until_lbl')}</label>
+                            <select id="f-available-until" class="form-select">${toCardTimeOptions('', '—')}</select>
+                        </div>
+                    </div>
+                    <ha-formfield label="${this.localize('approval_lbl')}">
+                        <ha-switch id="f-approval"></ha-switch>
+                    </ha-formfield>
+                    <ha-formfield label="${this.localize('routine_lbl')}">
+                        <ha-switch id="f-routine"></ha-switch>
+                    </ha-formfield>
 
                     <div>
                         <label class="form-label">${this.localize('assignees_lbl')}</label>
@@ -1447,6 +1569,13 @@ class TaskOrganizerCard extends HTMLElement {
     const nameField = this.shadowRoot.getElementById('f-name');
     if (nameField) {
         nameField.addEventListener('input', (e) => this._handleTemplateSuggestions(e));
+    }
+
+    const templateSelect = this.shadowRoot.getElementById('f-template');
+    if (templateSelect) {
+        templateSelect.addEventListener('change', (e) => {
+            if (e.target.value) this._applyTemplate(e.target.value);
+        });
     }
     
     const iconPicker = this.shadowRoot.getElementById('f-icon-picker');
@@ -1554,6 +1683,7 @@ class TaskOrganizerCard extends HTMLElement {
         this.shadowRoot.getElementById('f-area').value = t.area || '';
         this.shadowRoot.getElementById('f-complexity').value = t.complexity || 5;
         this.shadowRoot.getElementById('f-icon-picker').value = t.icon || 'mdi:broom';
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
         this.shadowRoot.getElementById('template-suggestions').innerHTML = '';
         
         this._subtasks = t.subtasks ? JSON.parse(JSON.stringify(t.subtasks)) : [];

@@ -150,18 +150,28 @@ class TaskOrganizerLeaderboard extends HTMLElement {
   }
 
   /**
+   * Participant ID of a person entity: the linked HA user_id if present,
+   * otherwise the person entity_id (persons without a user account, e.g. kids).
+   * @param {string} entityId - The person entity_id.
+   * @param {object} state - The person state object.
+   * @returns {string} - The participant ID used for points/history/assignees.
+   */
+  static participantId(entityId, state) {
+    return (state && state.attributes && state.attributes.user_id) || entityId;
+  }
+
+  /**
    * Maps Home Assistant 'person' entities to the local users object.
+   * Persons without an HA user are keyed by their entity_id.
    */
   mapUsers() { 
     for (const entityId in this._hass.states) { 
       if (entityId.startsWith('person.')) { 
         const state = this._hass.states[entityId]; 
-        if (state.attributes.user_id) { 
-          this.users[state.attributes.user_id] = { 
-            name: state.attributes.friendly_name || entityId, 
-            picture: state.attributes.entity_picture || '' 
-          }; 
-        } 
+        this.users[TaskOrganizerLeaderboard.participantId(entityId, state)] = { 
+          name: state.attributes.friendly_name || entityId, 
+          picture: state.attributes.entity_picture || '' 
+        }; 
       } 
     } 
   }
