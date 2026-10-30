@@ -197,6 +197,12 @@ Kids mode turns TaskOrganizer into a motivating family system for kids (designed
 
 **Typical setup:** one wall tablet (e.g. an Android tablet with Fully Kiosk Browser) that is permanently logged in as a single Home Assistant user (e.g. "Tablet", not an admin) and shows the kids card. The parents use their own admin users on their phones.
 
+### Parents guide (in-app help)
+A practical guide for parents (basic idea, 10-minute setup, ramp-up weeks, daily routine, approvals, choosing rewards, praising, goals, phasing out, FAQ) in German, French and English:
+
+* In Home Assistant: the **❓ Hilfe** buttons of the parents card, the Kids section of the settings card and the quick-start wizard open it as a full-screen overlay at the matching chapter (table of contents, collapsible chapters, search, works offline; language from your Home Assistant profile, fallback English). It can also be placed as a card: `type: custom:task-organizer-help` (optional `anchor: ramp` to open a chapter).
+* As documents: [Deutsch](docs/parents-guide.de.md) · [Français](docs/parents-guide.fr.md) · [English](docs/parents-guide.en.md).
+
 ### Kids do not need a Home Assistant user
 Kids are `person` entities. The *participant ID* used for points, history and assignees is the `user_id` attribute of the person if there is one, otherwise the entity id (e.g. `person.anna`). Existing data that is keyed by user id keeps working unchanged. All cards (task list, leaderboard, protocol, reports, settings) and the services (`assignees`, `complete_task_by_name`) understand both kinds of IDs.
 

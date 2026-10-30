@@ -49,7 +49,7 @@ const I18N_PARENTS = {
     rewards_active: "Active", rewards_delete: "Delete", rewards_save: "Save", toast_rewards_saved: "Rewards saved",
     rewards_invalid: "Please give every reward a name and a cost from 1 to 1000.", rewards_max: "At most 30 rewards.",
     praise_btn: "Praise", praise_title: "Praise {name}", praise_sticker: "Sticker", praise_msg_ph: "Your own words (optional)", praise_msg_lbl: "Message",
-    praise_send: "Send praise", toast_praise: "Praise sent to {name}", type_praise: "Praise",
+    help_btn: "Help", praise_send: "Send praise", toast_praise: "Praise sent to {name}", type_praise: "Praise",
     praise_c1: "Thanks for helping!", praise_c2: "You did that really well!", praise_c3: "I am proud of you!", praise_c4: "Great how you stuck with it!"
   },
   de: {
@@ -88,7 +88,7 @@ const I18N_PARENTS = {
     rewards_active: "Aktiv", rewards_delete: "Löschen", rewards_save: "Speichern", toast_rewards_saved: "Belohnungen gespeichert",
     rewards_invalid: "Bitte jeder Belohnung einen Namen und einen Preis von 1 bis 1000 geben.", rewards_max: "Höchstens 30 Belohnungen.",
     praise_btn: "Loben", praise_title: "{name} loben", praise_sticker: "Sticker", praise_msg_ph: "Eigene Worte (optional)", praise_msg_lbl: "Nachricht",
-    praise_send: "Lob senden", toast_praise: "Lob an {name} gesendet", type_praise: "Lob",
+    help_btn: "Hilfe", praise_send: "Lob senden", toast_praise: "Lob an {name} gesendet", type_praise: "Lob",
     praise_c1: "Danke fürs Helfen!", praise_c2: "Das hast du super gemacht!", praise_c3: "Ich bin stolz auf dich!", praise_c4: "Toll, wie du drangeblieben bist!"
   }
 };
@@ -415,6 +415,7 @@ class TaskOrganizerParents extends HTMLElement {
     else if (action === 'praise-sticker' && this._praise) { this._praise.sticker = el.dataset.sticker; this._renderLayer(); }
     else if (action === 'praise-chip' && this._praise) { this._praise.message = el.dataset.text; this._renderLayer(); }
     else if (action === 'praise-send') this._sendPraise();
+    else if (action === 'help') { if (window.TaskOrganizerHelp) window.TaskOrganizerHelp.open(this._hass, el.dataset.anchor); }
     else if (action === 'rw-open') this._openRewards();
     else if (action === 'rw-add') this._rewardsAdd(false);
     else if (action === 'rw-suggest') this._rewardsAdd(true);
@@ -835,7 +836,7 @@ class TaskOrganizerParents extends HTMLElement {
     } else {
       body = `${this._renderApprovals()}${this._renderRedemptions()}${this._renderKids()}`;
     }
-    app.innerHTML = `<ha-card><div class="head">${title}</div><div class="body">${body}</div></ha-card>`;
+    app.innerHTML = `<ha-card><div class="head"><span class="head-title">${title}</span>${window.TaskOrganizerHelp ? `<button class="help-btn" data-action="help" data-anchor="daily">❓ ${escParents(this.localize('help_btn'))}</button>` : ''}</div><div class="body">${body}</div></ha-card>`;
     // The dialog layer is not rebuilt on data refreshes (it would reset what is typed);
     // it only closes when its approval was handled elsewhere in the meantime.
     if (this._confirm && !this.pending[this._confirm]) {
@@ -1021,7 +1022,9 @@ class TaskOrganizerParents extends HTMLElement {
       :host { display: block; --p-ok: #2E7D32; --p-danger: #C62828; --p-line: var(--divider-color, #d6d6d6); --p-sub: var(--secondary-text-color, #666); }
       * { box-sizing: border-box; }
       ha-card { display: block; padding: 16px; }
-      .head { font-size: 22px; font-weight: 700; margin-bottom: 12px; color: var(--primary-text-color); }
+      .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 22px; font-weight: 700; margin-bottom: 12px; color: var(--primary-text-color); }
+      .head-title { min-width: 0; overflow-wrap: anywhere; }
+      .help-btn { flex: none; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 2px solid var(--p-line); background: var(--card-background-color, #fff); color: var(--primary-text-color); font-size: 14px; font-weight: 700; }
       .body { display: flex; flex-direction: column; gap: 20px; color: var(--primary-text-color); }
       h2 { margin: 0 0 10px; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
       h3 { margin: 0 0 8px; font-size: 18px; display: flex; align-items: center; gap: 10px; }

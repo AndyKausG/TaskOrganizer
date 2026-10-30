@@ -3949,7 +3949,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"{base_path}/task-organizer-protocol.js",
             f"{base_path}/task-organizer-kids.js",
             f"{base_path}/task-organizer-wizard.js",
-            f"{base_path}/task-organizer-parents.js"
+            f"{base_path}/task-organizer-parents.js",
+            f"{base_path}/task-organizer-help.js"
         ]
         
         current_resources = {
