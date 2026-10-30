@@ -253,6 +253,16 @@ Tasks and templates have the optional fields `available_from` and `available_unt
 ### Undo (parents)
 The websocket command `task_organizer/undo_completion` (admin, manager or parent) (`history_id`) takes back a task completion: all history entries of that completion (they share a `completion_id`; older entries without one are undone individually) are removed, their points are subtracted (never below 0), the task gets its previous due date back (`previous_due_date` is stored in the history entry; without it the task is due now), subtasks are reset and a one-time task that was deleted by the completion is recreated from a snapshot stored in the history entry. There is no deduction. A second undo answers `{"success": false, "error": "not_found"}`. The parents card shows "↩️ Rückgängig" (with a confirmation) on task entries in the per-kid history, the protocol card has an undo button for administrators.
 
+### Parent actions on the kids card
+A Home Assistant user with a parent role (administrator, manager or parent, see [Parents role](#parents-role)) who opens the kids card (and enters the kid's PIN) sees a small icon row below every task: **⏭️ Skip today**, **⏸️ Postpone** (a sheet: tomorrow / the day after tomorrow / a date picked with day and month selects) and **✅ Complete for the kid**. Below the duties a list "Done today" offers **↩️ Undo** for the completions of this kid from today. Skip, complete and undo ask for a confirmation. On the tablet user (no role) nothing changes; there is no way to delete a task from the kids card.
+
+| Command | Allowed | Description |
+| :--- | :--- | :--- |
+| `task_organizer/parent_task_action` | admin, manager, parent | `task_id`, `action`: `skip_today` moves the task to its next occurrence without points and writes a history entry of type `skipped` (0 points, reason "Von Eltern ausgesetzt" / "Skipped by parents"; it is not counted as missed; a one-time task is postponed to tomorrow instead of being deleted). `postpone` hides the task until `until` (`YYYY-MM-DD`, the first day it is back, default tomorrow; `invalid_date` for a date that is not in the future). |
+| `task_organizer/parent_complete_for` | admin, manager, parent | `task_id`, `kid_id`. A normal completion for the kid with 100 % of the points (history, events, next occurrence) that ignores PIN, time window, open steps and approval rules. |
+
+Both answer `{"success": false, "error": "not_found"}` for an unknown task (`parent_complete_for` also `unknown_kid`).
+
 ### Spontaneous bonus
 The **➕ Spontan-Bonus** button of the parents card opens a sheet to create a one-time bonus task in a few taps: name (required, up to 60 characters), icon chip (🛒 🍞 🧺 🧹 📦 🐕 ⭐), estimated minutes (5 / 10 / 15 / 30, suggesting 2 / 3 / 4 / 6 points, editable 1-10), target ("All kids" or one kid) with a minimum age, and an expiry ("No expiry" or "Today until HH:MM"). The admin-only websocket command `task_organizer/add_adhoc_bonus` (`name`, `points`, optional `icon`, `minutes`, `kid_id`, `min_age`, `expires_at` as ISO date/time) creates a task with `interval: 0`, category `bonus`, `adhoc: true` and `expires_at`, and fires `task_organizer_task_created` and [`task_organizer_bonus_opened`](#task_organizer_bonus_opened), so existing tablet announcements work. Errors: `unauthorized`, `invalid_name`, `invalid_icon`, `unknown_person`, `invalid_expiry`. A kid-targeted task uses the normal assignee rule. Expired ad-hoc tasks are removed automatically (checked every minute) without points or history; the kids card hides them as soon as they expire and shows "bis 18:00" on the bonus board.
 
@@ -377,7 +387,7 @@ By default every parent action needs a Home Assistant administrator. With the **
 | --- | --- |
 | Administrator (HA admin) | everything, including `set_parents` |
 | Manager (`parents_manage`) | everything of a parent plus `set_kid_profile` (incl. PINs), `delete_kid_profile`, `wizard_catalog` / `wizard_preview` / `wizard_apply`, `set_bonus_triggers`; sees the Kids section and the wizard in the settings card |
-| Parent (`parents`) | `approve`, `reject`, `adjust_points`, `undo_completion`, `add_adhoc_bonus`; parents card and undo in the protocol card; sees the settings read-only |
+| Parent (`parents`) | `approve`, `reject`, `adjust_points`, `undo_completion`, `add_adhoc_bonus`, `parent_task_action`, `parent_complete_for`; parents card and undo in the protocol card; sees the settings read-only |
 | Anyone else | none of the above (error `unauthorized`) |
 
 `get_data` returns `my_role` (`admin`, `manager`, `parent` or `null`) for the calling user and `ha_users` (persons with a user: `user_id`, `name`) for the settings card. Services such as `task_organizer.adjust_points` stay Home Assistant admin-level, and actionable push notifications are unchanged.

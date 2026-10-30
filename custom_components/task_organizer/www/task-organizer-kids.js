@@ -57,6 +57,15 @@ const I18N_KIDS = {
     err_not_yet: "Not yet! This task starts a little later.",
     err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!",
     steps_left: "Still {n} step(s) to tick",
+    pa_skip: "Skip today", pa_postpone: "Postpone", pa_complete: "Complete for {name}", pa_undo: "Undo",
+    pa_cancel: "Cancel", pa_ok: "OK", pa_done_today: "Done today",
+    pa_confirm_skip: "Skip \"{task}\" today? No points are given.",
+    pa_confirm_complete: "Complete \"{task}\" for {name}? {n} points will be awarded.",
+    pa_confirm_undo: "Undo \"{task}\"? The points are taken back.",
+    pa_postpone_title: "Postpone \"{task}\"", pa_back_on: "Back on",
+    pa_tomorrow: "Tomorrow", pa_day_after: "Day after tomorrow", pa_date: "Pick a date",
+    pa_day: "Day", pa_month: "Month", pa_postpone_ok: "Postpone",
+    pa_skipped: "Skipped for today", pa_postponed: "Postponed", pa_completed: "Done for {name}: +{n}", pa_undone: "Undone",
     replaced_today: "Today: {a} instead of {b}"
   },
   de: {
@@ -97,6 +106,15 @@ const I18N_KIDS = {
     err_not_yet: "Noch nicht dran! Die Aufgabe startet etwas später.",
     err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!",
     steps_left: "Noch {n} Schritt(e) abhaken",
+    pa_skip: "Heute aussetzen", pa_postpone: "Zurückstellen", pa_complete: "Für {name} erledigen", pa_undo: "Rückgängig",
+    pa_cancel: "Abbrechen", pa_ok: "OK", pa_done_today: "Heute erledigt",
+    pa_confirm_skip: "\"{task}\" heute aussetzen? Es gibt keine Punkte.",
+    pa_confirm_complete: "\"{task}\" für {name} erledigen? {n} Punkte werden gutgeschrieben.",
+    pa_confirm_undo: "\"{task}\" rückgängig machen? Die Punkte werden zurückgenommen.",
+    pa_postpone_title: "\"{task}\" zurückstellen", pa_back_on: "Wieder da ab",
+    pa_tomorrow: "Morgen", pa_day_after: "Übermorgen", pa_date: "Datum wählen",
+    pa_day: "Tag", pa_month: "Monat", pa_postpone_ok: "Zurückstellen",
+    pa_skipped: "Für heute ausgesetzt", pa_postponed: "Zurückgestellt", pa_completed: "Für {name} erledigt: +{n}", pa_undone: "Rückgängig gemacht",
     replaced_today: "Heute: {a} statt {b}"
   }
 };
@@ -167,10 +185,13 @@ class TaskOrganizerKids extends HTMLElement {
     this._narrow = false;
     this._resizeObserver = null;
     this._minuteKey = Math.floor(Date.now() / 60000);
+    this._myRole = null;          // admin | manager | parent | null (viewing Home Assistant user)
+    this._sheet = null;           // open confirm / postpone dialog of a parent action
 
     this.shadowRoot.innerHTML = `<style>${this._styles()}</style><div id="app"></div><div id="fx"></div>`;
     this.shadowRoot.addEventListener('click', (ev) => this._onClick(ev));
     this.shadowRoot.addEventListener('pointerdown', () => this._onPointerDown());
+    this.shadowRoot.addEventListener('change', (ev) => this._onChange(ev));
     // scroll events do not bubble: capture them to keep the "more below" hints current
     this.shadowRoot.addEventListener('scroll', () => this._updateScrollHints(), true);
   }
@@ -344,6 +365,7 @@ class TaskOrganizerKids extends HTMLElement {
       this.settings = data.settings || {};
       this.pending = data.pending || {};
       this.history = Array.isArray(data.history) ? data.history : [];
+      this._myRole = data.my_role || null;
       this.familyPoints = (data.family_points === undefined || data.family_points === null) ? null : parseFloat(data.family_points);
       this.birthdayLevelup = data.birthday_levelup || {};
       this._fetched = true;
@@ -670,6 +692,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._pin = '';
     this._pinMessage = '';
     this._session = null;
+    this._sheet = null;
     this._busy = false;
     this._render();
   }
@@ -722,6 +745,182 @@ class TaskOrganizerKids extends HTMLElement {
     else if (action === 'claim') this._claim(el.dataset.task);
     else if (action === 'complete') this._complete(el.dataset.task);
     else if (action === 'bday-close') this._closeBirthday();
+    else if (action === 'pa-skip') this._openConfirm('skip', el.dataset.task);
+    else if (action === 'pa-complete') this._openConfirm('complete', el.dataset.task);
+    else if (action === 'pa-undo') this._openConfirm('undo', null, el.dataset.id);
+    else if (action === 'pa-postpone') this._openPostpone(el.dataset.task);
+    else if (action === 'pp-choice') { this._sheet.choice = el.dataset.choice; this._render(); }
+    else if (action === 'sheet-cancel') { this._sheet = null; this._render(); }
+    else if (action === 'sheet-ok') this._sheetOk();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parent actions on the task cards (only for admin / manager / parent users)
+  // ---------------------------------------------------------------------------
+
+  _isParent() {
+    return ['admin', 'manager', 'parent'].includes(this._myRole);
+  }
+
+  _onChange(ev) {
+    const el = ev.target;
+    if (!el || !el.dataset || !el.dataset.field || !this._sheet) return;
+    this._sheet[el.dataset.field] = el.value;
+    this._render();
+  }
+
+  /** Completions of this kid today (one per completion), for the parents' undo button. */
+  _doneToday(kid) {
+    const today = this._localToday();
+    const seen = new Set();
+    return this.history.filter(h => (h.type || 'task') === 'task' && h.user_id === kid.id &&
+      this._dateKey(h.timestamp) === today).filter(h => {
+      const key = h.completion_id || h.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  _openConfirm(kind, taskId, historyId = null) {
+    const entry = historyId ? this.history.find(h => h.id === historyId) : null;
+    const task = taskId ? this.tasks[taskId] : null;
+    if (!entry && !task) return;
+    this._sheet = {
+      type: 'confirm', kind, taskId, historyId,
+      name: entry ? entry.task_name : task.name,
+      points: entry ? entry.points : task.complexity
+    };
+    this._render();
+  }
+
+  _openPostpone(taskId) {
+    const task = this.tasks[taskId];
+    if (!task) return;
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 3);
+    this._sheet = { type: 'postpone', taskId, name: task.name, choice: 'tomorrow', day: String(soon.getDate()), month: String(soon.getMonth() + 1) };
+    this._render();
+  }
+
+  /** YYYY-MM-DD of a date in local time. */
+  _ymdOf(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  /** First day the postponed task is back: tomorrow, the day after, or the next occurrence of day/month. */
+  _postponeUntil(sheet) {
+    const now = new Date();
+    const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (sheet.choice === 'tomorrow' || sheet.choice === 'day2') {
+      return this._ymdOf(new Date(base.getFullYear(), base.getMonth(), base.getDate() + (sheet.choice === 'tomorrow' ? 1 : 2)));
+    }
+    const day = parseInt(sheet.day), month = parseInt(sheet.month);
+    for (let year = base.getFullYear(); year <= base.getFullYear() + 4; year++) {
+      const d = new Date(year, month - 1, day);
+      if (d.getMonth() === month - 1 && d.getDate() === day && d > base) return this._ymdOf(d);
+    }
+    return null;
+  }
+
+  async _sheetOk() {
+    const sheet = this._sheet;
+    if (!sheet || this._busy || !this._session) return;
+    const kid = this._kids().find(k => k.id === this._session.kidId);
+    let payload;
+    let message;
+    if (sheet.type === 'postpone') {
+      const until = this._postponeUntil(sheet);
+      if (!until) return;
+      payload = { type: 'task_organizer/parent_task_action', task_id: sheet.taskId, action: 'postpone', until };
+      message = this.localize('pa_postponed');
+    } else if (sheet.kind === 'skip') {
+      payload = { type: 'task_organizer/parent_task_action', task_id: sheet.taskId, action: 'skip_today' };
+      message = this.localize('pa_skipped');
+    } else if (sheet.kind === 'complete') {
+      payload = { type: 'task_organizer/parent_complete_for', task_id: sheet.taskId, kid_id: this._session.kidId };
+    } else {
+      payload = { type: 'task_organizer/undo_completion', history_id: sheet.historyId };
+      message = this.localize('pa_undone');
+    }
+    this._busy = true;
+    try {
+      const res = await this._hass.callWS(payload);
+      if (res && res.success) {
+        if (sheet.kind === 'complete') message = this.localize('pa_completed', { name: kid ? kid.name : '', n: fmtKids(res.points) });
+        this._showToast(message);
+      } else {
+        this._showToast(this._errorText(res));
+      }
+    } catch (err) {
+      console.error("TaskOrganizer Kids: parent action failed", err);
+      this._showToast(this.localize('err_generic'));
+    }
+    this._busy = false;
+    this._sheet = null;
+    this._fetchData();
+    this._render();
+  }
+
+  /** Icon row below a task title (parents only): skip today, postpone, complete for the kid. */
+  _renderParentRow(task, kid) {
+    const id = escKids(task.id);
+    const btn = (action, icon, label) =>
+      `<button class="pbtn" data-action="${action}" data-task="${id}" title="${escKids(label)}" aria-label="${escKids(label)}" ${this._busy ? 'disabled' : ''}>${icon}</button>`;
+    return `<div class="pact" role="group">
+      ${btn('pa-skip', '⏭️', this.localize('pa_skip'))}
+      ${btn('pa-postpone', '⏸️', this.localize('pa_postpone'))}
+      ${btn('pa-complete', '✅', this.localize('pa_complete', { name: kid.name }))}
+    </div>`;
+  }
+
+  /** "Done today" list with undo buttons (parents only). */
+  _renderDoneToday(kid) {
+    const list = this._doneToday(kid);
+    if (!list.length) return '';
+    return `<div class="done-today">
+      <div class="wait-title">✅ ${escKids(this.localize('pa_done_today'))} <span class="count">${list.length}</span></div>
+      ${list.map(h => `
+        <div class="wait-item">
+          <div class="wait-name">${escKids(h.task_name)}</div>
+          <div class="wait-pts">⭐ ${fmtKids(h.points)}</div>
+          <button class="pbtn" data-action="pa-undo" data-id="${escKids(h.id)}" title="${escKids(this.localize('pa_undo'))}" aria-label="${escKids(this.localize('pa_undo'))}" ${this._busy ? 'disabled' : ''}>↩️</button>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  /** Confirm dialog / postpone sheet of a parent action. */
+  _renderSheet() {
+    const sheet = this._sheet;
+    if (!sheet) return '';
+    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    const cancel = `<button class="sbtn" data-action="sheet-cancel">${escKids(this.localize('pa_cancel'))}</button>`;
+    let body;
+    if (sheet.type === 'postpone') {
+      const until = this._postponeUntil(sheet);
+      const lang = (this._hass && this._hass.language) || undefined;
+      const choice = (id, key) => `<button class="schoice ${sheet.choice === id ? 'on' : ''}" data-action="pp-choice" data-choice="${id}" aria-pressed="${sheet.choice === id}">${escKids(this.localize(key))}</button>`;
+      const days = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}" ${String(i + 1) === String(sheet.day) ? 'selected' : ''}>${i + 1}</option>`).join('');
+      const months = Array.from({ length: 12 }, (_, i) =>
+        `<option value="${i + 1}" ${String(i + 1) === String(sheet.month) ? 'selected' : ''}>${escKids(new Date(2000, i, 1).toLocaleString(lang, { month: 'long' }))}</option>`).join('');
+      const when = until ? new Date(until + 'T12:00:00').toLocaleDateString(lang, { weekday: 'short', day: 'numeric', month: 'long' }) : '';
+      body = `
+        <div class="sheet-title">⏸️ ${escKids(this.localize('pa_postpone_title', { task: sheet.name }))}</div>
+        <div class="schoices">${choice('tomorrow', 'pa_tomorrow')}${choice('day2', 'pa_day_after')}${choice('date', 'pa_date')}</div>
+        ${sheet.choice === 'date' ? `<div class="sdate">
+          <label>${escKids(this.localize('pa_day'))}<select data-field="day">${days}</select></label>
+          <label>${escKids(this.localize('pa_month'))}<select data-field="month">${months}</select></label></div>` : ''}
+        <div class="sheet-hint">${until ? `${escKids(this.localize('pa_back_on'))}: ${escKids(when)}` : ''}</div>
+        <div class="sheet-btns">${cancel}<button class="sbtn ok" data-action="sheet-ok" ${until ? '' : 'disabled'}>${escKids(this.localize('pa_postpone_ok'))}</button></div>`;
+    } else {
+      const key = { skip: 'pa_confirm_skip', complete: 'pa_confirm_complete', undo: 'pa_confirm_undo' }[sheet.kind];
+      const icon = { skip: '⏭️', complete: '✅', undo: '↩️' }[sheet.kind];
+      body = `
+        <div class="sheet-title">${icon} ${escKids(this.localize(key, { task: sheet.name, name: kid ? kid.name : '', n: fmtKids(sheet.points) }))}</div>
+        <div class="sheet-btns">${cancel}<button class="sbtn ok" data-action="sheet-ok">${escKids(this.localize('pa_ok'))}</button></div>`;
+    }
+    return `<div class="overlay" role="dialog" aria-modal="true"><div class="sheet" style="--kc:${kid ? kid.color : '#4CAF50'}">${body}</div></div>`;
   }
 
   _openKid(kidId) {
@@ -1350,7 +1549,8 @@ class TaskOrganizerKids extends HTMLElement {
     const dutyHtml = (duties.length
       ? duties.map(t => this._renderTask(t, kid, 'duty', persons)).join('')
       : `<div class="empty-state small">🎉 ${escKids(this.localize('no_tasks'))}</div>`)
-      + this._renderReplaced(kid) + this._renderWaiting(waiting) + this._renderPrivate(kid);
+      + this._renderReplaced(kid) + this._renderWaiting(waiting) + this._renderPrivate(kid)
+      + (this._isParent() ? this._renderDoneToday(kid) : '');
     const bonusHtml = bonus.length
       ? bonus.map(t => this._renderTask(t, kid, this._bonusLocked(t, kid) ? 'locked' : 'bonus', persons)).join('')
       : `<div class="empty-state small">😴 ${escKids(this.localize('no_bonus'))}</div>`;
@@ -1382,6 +1582,7 @@ class TaskOrganizerKids extends HTMLElement {
             <div class="col-scroll">${bonusHtml}</div>
           </section>
         </div>
+        ${this._renderSheet()}
       </div>`;
   }
 
@@ -1515,6 +1716,7 @@ class TaskOrganizerKids extends HTMLElement {
           <div class="t-action">${action}</div>
         </div>
         ${subs}
+        ${this._isParent() ? this._renderParentRow(task, kid) : ''}
       </article>`;
   }
 
@@ -1647,6 +1849,27 @@ class TaskOrganizerKids extends HTMLElement {
       .sub.done .box { background: var(--k-good); border-color: var(--k-good); }
       .sub.done .sub-title { text-decoration: line-through; text-decoration-thickness: 3px; }
       .sub-title { overflow-wrap: anywhere; }
+
+      /* ---------- parent actions (parent role only) ---------- */
+      .pact { display: flex; gap: 12px; justify-content: flex-end; padding-top: 10px; border-top: 3px dashed var(--k-line); }
+      .pbtn { width: 60px; height: 60px; flex: none; border-radius: 50%; font-size: 28px; line-height: 1; background: color-mix(in srgb, var(--k-sub) 16%, var(--k-card)); border: 3px solid var(--k-line); }
+      .pbtn:active:not(:disabled) { transform: scale(0.92); }
+      .pbtn:disabled { opacity: 0.5; }
+      .done-today { margin-top: 10px; padding: 10px 14px; border-radius: 22px; border: 3px dashed var(--k-line); display: flex; flex-direction: column; gap: 8px; }
+      .done-today .wait-item { align-items: center; }
+      .sheet { width: min(560px, 100%); display: flex; flex-direction: column; gap: 18px; padding: 26px 30px; border-radius: 36px; background: var(--k-card); border: 6px solid var(--kc); box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
+      .sheet-title { font-size: 28px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+      .sheet-hint { min-height: 28px; font-size: 22px; font-weight: 700; color: var(--k-sub); }
+      .schoices { display: flex; flex-wrap: wrap; gap: 10px; }
+      .schoice { min-height: 64px; padding: 0 22px; border-radius: 32px; font-size: 24px; font-weight: 800; background: var(--k-card); border: 4px solid var(--k-line); }
+      .schoice.on { background: color-mix(in srgb, var(--kc) 28%, var(--k-card)); border-color: var(--kc); }
+      .sdate { display: flex; gap: 14px; }
+      .sdate label { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 20px; font-weight: 700; color: var(--k-sub); }
+      .sdate select { min-height: 64px; font-size: 26px; font-family: inherit; padding: 0 10px; border-radius: 18px; border: 3px solid var(--k-line); background: var(--k-card); color: var(--k-text); }
+      .sheet-btns { display: flex; gap: 14px; justify-content: flex-end; }
+      .sbtn { min-height: 68px; min-width: 150px; padding: 0 26px; border-radius: 34px; font-size: 26px; font-weight: 800; background: color-mix(in srgb, var(--k-sub) 18%, var(--k-card)); border: 3px solid var(--k-line); }
+      .sbtn.ok { background: var(--k-good); border-color: var(--k-good); color: #fff; }
+      .sbtn:disabled { opacity: 0.5; }
 
       /* ---------- PIN pad ---------- */
       .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.62); display: grid; place-items: center; padding: 16px; }
@@ -1808,6 +2031,16 @@ class TaskOrganizerKids extends HTMLElement {
       :host([narrow]) .pin-msg { min-height: 40px; font-size: 16px; }
       :host([narrow]) .pad { grid-template-columns: repeat(3, 68px); gap: 10px; }
       :host([narrow]) .key { width: 68px; height: 68px; font-size: 32px; border-radius: 20px; }
+      :host([narrow]) .pact { order: 4; grid-column: 1 / -1; gap: 8px; padding-top: 8px; border-top-width: 2px; }
+      :host([narrow]) .pbtn { width: 48px; height: 48px; font-size: 22px; border-width: 2px; }
+      :host([narrow]) .done-today { padding: 8px 10px; border-radius: 18px; border-width: 2px; }
+      :host([narrow]) .sheet { padding: 16px 18px; gap: 12px; border-radius: 26px; border-width: 4px; }
+      :host([narrow]) .sheet-title { font-size: 19px; }
+      :host([narrow]) .sheet-hint { font-size: 16px; min-height: 22px; }
+      :host([narrow]) .schoice { min-height: 48px; padding: 0 14px; font-size: 17px; border-width: 3px; }
+      :host([narrow]) .sdate label { font-size: 15px; }
+      :host([narrow]) .sdate select { min-height: 48px; font-size: 18px; }
+      :host([narrow]) .sbtn { min-height: 52px; min-width: 0; flex: 1; font-size: 19px; padding: 0 12px; }
       :host([narrow]) .celebrate-text { padding: 18px 28px; border-radius: 32px; }
       :host([narrow]) .celebrate-text .plus { font-size: 56px; }
       :host([narrow]) .celebrate-text .great { font-size: 24px; }

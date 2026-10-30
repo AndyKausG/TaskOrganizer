@@ -32,7 +32,7 @@ const I18N_PARENTS = {
     toast_approved: "Approved: +{n} for {name}", toast_not_done: "Back on the list", toast_cheated: "Deducted −{n} from {name}",
     toast_gone: "Already handled", toast_clamped: "Only −{n} deducted ({name} had no more points)",
     toast_adjusted: "Saved", err: "Could not save: ", title_lbl: "Title",
-    type_missed: "Missed", undo: "Undo", undo_title: "Undo this entry?",
+    type_missed: "Missed", type_skipped: "Skipped", undo: "Undo", undo_title: "Undo this entry?",
     undo_text: "Points are deducted, the task is open again - without a penalty.", undo_confirm: "Yes, undo",
     toast_undone: "Undone", toast_undo_gone: "Was already undone",
     adhoc: "Spontaneous bonus", adhoc_btn: "Spontaneous bonus", adhoc_name: "What needs to be done?",
@@ -61,7 +61,7 @@ const I18N_PARENTS = {
     toast_approved: "Freigegeben: +{n} für {name}", toast_not_done: "Wieder auf der Liste", toast_cheated: "−{n} bei {name} abgezogen",
     toast_gone: "Wurde schon bearbeitet", toast_clamped: "Nur −{n} abgezogen ({name} hatte nicht mehr Punkte)",
     toast_adjusted: "Gespeichert", err: "Speichern fehlgeschlagen: ", title_lbl: "Titel",
-    type_missed: "Verpasst", undo: "Rückgängig", undo_title: "Eintrag rückgängig machen?",
+    type_missed: "Verpasst", type_skipped: "Ausgesetzt", undo: "Rückgängig", undo_title: "Eintrag rückgängig machen?",
     undo_text: "Punkte werden abgezogen, Aufgabe ist wieder offen – ohne Abzug.", undo_confirm: "Ja, rückgängig",
     toast_undone: "Rückgängig gemacht", toast_undo_gone: "Wurde schon rückgängig gemacht",
     adhoc: "Spontan-Bonus", adhoc_btn: "Spontan-Bonus", adhoc_name: "Was ist zu tun?",
@@ -81,7 +81,7 @@ window.customCards.push({
   preview: false,
 });
 
-const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️' };
+const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️' };
 
 /** Icon chips of the spontaneous bonus sheet: emoji + the mdi icon stored in the task. */
 const PARENTS_ADHOC_ICONS = [
@@ -687,10 +687,10 @@ class TaskOrganizerParents extends HTMLElement {
       <div class="entry">
         <span class="e-icon" title="${escParents(this.localize('type_' + type))}">${PARENTS_TYPE_ICONS[type]}</span>
         <span class="e-main"><span class="e-name">${escParents(name)}</span>
-          ${(type === 'task' || type === 'birthday') && h.reason ? `<span class="e-reason">${escParents(h.reason)}</span>` : ''}
+          ${(type === 'task' || type === 'birthday' || type === 'skipped') && h.reason ? `<span class="e-reason">${escParents(h.reason)}</span>` : ''}
           <span class="e-when">${escParents(when)}</span>
           ${type === 'task' ? `<button class="undo" data-action="undo" data-id="${escParents(h.id)}">↩️ ${escParents(this.localize('undo'))}</button>` : ''}</span>
-        <span class="e-pts ${points < 0 ? 'neg' : ''}">${type === 'missed' ? '0' : points < 0 ? '−' + fmtParents(Math.abs(points)) : '+' + fmtParents(points)}</span>
+        <span class="e-pts ${points < 0 ? 'neg' : ''}">${type === 'missed' || type === 'skipped' ? '0' : points < 0 ? '−' + fmtParents(Math.abs(points)) : '+' + fmtParents(points)}</span>
       </div>`;
   }
 
