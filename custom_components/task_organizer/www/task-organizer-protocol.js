@@ -135,6 +135,7 @@ class TaskOrganizerProtocol extends HTMLElement {
   _fetchData() { 
     this._hass.callWS({ type: 'task_organizer/get_data' }).then((data) => { 
       this.history = data.history || [];
+      this._myRole = data.my_role || null;
       this.render(); 
     }); 
   }
@@ -173,7 +174,12 @@ class TaskOrganizerProtocol extends HTMLElement {
     this._hass.callWS({ type: 'task_organizer/edit_history_item', entry_id: this.editingEntryId, points: points, user_id: userId }).then(() => { this._closeModal(); this._fetchData(); }); 
   }
 
-  /** Undo a task completion (admins only): points back, task open again, no penalty. */
+  /** Admins, managers and parents may undo (the backend checks the role). */
+  _canUndo() {
+    return !!(this._hass && this._hass.user && this._hass.user.is_admin) || ['admin', 'manager', 'parent'].includes(this._myRole);
+  }
+
+  /** Undo a task completion: points back, task open again, no penalty. */
   _undoEntry(entryId) {
     if (confirm(this.localize('confirm_undo'))) {
       this._hass.callWS({ type: 'task_organizer/undo_completion', history_id: entryId }).then(() => this._fetchData());
@@ -204,7 +210,7 @@ class TaskOrganizerProtocol extends HTMLElement {
         </div>
         <div class="actions">
           <span class="points-badge ${points < 0 ? 'neg' : ''}">${type === 'missed' ? '0' : points < 0 ? '−' + Math.abs(points) : '+' + points}</span>
-          ${type === 'task' && this._hass && this._hass.user && this._hass.user.is_admin ? `<button class="action-btn btn-undo" data-id="${escProtocol(entry.id)}" title="${escProtocol(this.localize('undo_hover'))}" aria-label="${escProtocol(this.localize('undo'))}"><ha-icon icon="mdi:undo-variant"></ha-icon></button>` : ''}
+          ${type === 'task' && this._canUndo() ? `<button class="action-btn btn-undo" data-id="${escProtocol(entry.id)}" title="${escProtocol(this.localize('undo_hover'))}" aria-label="${escProtocol(this.localize('undo'))}"><ha-icon icon="mdi:undo-variant"></ha-icon></button>` : ''}
           <button class="action-btn btn-edit" data-id="${escProtocol(entry.id)}" title="${this.localize('edit_hover')}"><ha-icon icon="mdi:pencil"></ha-icon></button>
           <button class="action-btn btn-delete" data-id="${escProtocol(entry.id)}" title="${this.localize('delete_hover')}"><ha-icon icon="mdi:delete"></ha-icon></button>
         </div>

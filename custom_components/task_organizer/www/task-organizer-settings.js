@@ -45,7 +45,10 @@ const I18N_SETTINGS = {
     kids_title: "Kids", kids_desc: "Enable persons as kids for the kids card: avatar, color, birth year and an optional 4-digit PIN. Kids do not need a Home Assistant user.",
     kid_enable: "Is a kid", kid_avatar: "Avatar (emoji)", kid_color: "Color", kid_birth_year: "Birth year", kid_goal: "Monthly goal (points)",
     kid_pin: "PIN (4 digits)", kid_pin_set: "PIN set (empty = keep)", kid_pin_none: "No PIN", kid_pin_clear: "Remove PIN",
-    kids_admin_only: "Only administrators can change kid profiles and PINs.", invalid_pin: "The PIN must consist of exactly 4 digits.",
+    kids_admin_only: "Only administrators and parents with management rights can change kid profiles and PINs.",
+    parents_title: "Parents", parents_desc: "Home Assistant users who may approve, give points and undo without being administrators. \"May manage\" additionally allows kid profiles, the wizard and bonus triggers. Administrators are always parents.",
+    parents_warn: "Do not enter the tablet user here.", parents_col_parent: "Parent", parents_col_manage: "May manage",
+    parents_none: "No persons with a Home Assistant user found.", parents_admin_only: "Only administrators can change the parents.", invalid_pin: "The PIN must consist of exactly 4 digits.",
     kids_save_error: "Could not save the kid profiles: ",
     kid_birthday: "Birthday", kid_birth_year_fallback: "Birth year (if no birthday)", kid_sample: "Spot checks by parents: {n} %",
     kid_sample_hint: "Share of completions that a parent checks at random before points are awarded (0 = none).",
@@ -107,7 +110,10 @@ claim_minutes: "Bonus reservation (minutes)",
     kids_title: "Kinder / Kids", kids_desc: "Personen als Kinder für die Kinder-Karte freischalten: Avatar, Farbe, Geburtsjahr und optional eine 4-stellige PIN. Kinder brauchen keinen Home-Assistant-Benutzer.",
     kid_enable: "Ist ein Kind", kid_avatar: "Avatar (Emoji)", kid_color: "Farbe", kid_birth_year: "Geburtsjahr", kid_goal: "Monatsziel (Punkte)",
     kid_pin: "PIN (4 Ziffern)", kid_pin_set: "PIN gesetzt (leer = behalten)", kid_pin_none: "Keine PIN", kid_pin_clear: "PIN entfernen",
-    kids_admin_only: "Nur Administratoren können Kinder-Profile und PINs ändern.", invalid_pin: "Die PIN muss aus genau 4 Ziffern bestehen.",
+    kids_admin_only: "Nur Administratoren und Eltern mit Verwaltungsrecht können Kinder-Profile und PINs ändern.",
+    parents_title: "Eltern", parents_desc: "Home-Assistant-Benutzer, die ohne Administratorrechte freigeben, Punkte vergeben und rückgängig machen dürfen. \"Darf verwalten\" erlaubt zusätzlich Kinder-Profile, Assistent und Bonus-Auslöser. Administratoren sind immer Eltern.",
+    parents_warn: "Den Tablet-Benutzer hier nicht eintragen.", parents_col_parent: "Eltern", parents_col_manage: "Darf verwalten",
+    parents_none: "Keine Personen mit Home-Assistant-Benutzer gefunden.", parents_admin_only: "Nur Administratoren können die Eltern ändern.", invalid_pin: "Die PIN muss aus genau 4 Ziffern bestehen.",
     kids_save_error: "Kinder-Profile konnten nicht gespeichert werden: ",
     kid_birthday: "Geburtstag", kid_birth_year_fallback: "Geburtsjahr (falls kein Geburtstag)", kid_sample: "Stichproben durch Eltern: {n} %",
     kid_sample_hint: "Anteil der Erledigungen, die Mama oder Papa zufällig prüfen, bevor Punkte gutgeschrieben werden (0 = keine).",
@@ -227,6 +233,9 @@ class TaskOrganizerSettings extends HTMLElement {
     this._goalDrafts = {};
     this._familyDraft = {};
     this._kidsOpen = false;
+    this._myRole = null;
+    this._haUsers = [];
+    this._parentsDraft = null;
     this._trigOpen = false;
     this._trigDraft = { task: '', entity_id: '', to_state: '', filter: '' };
     this._wizard = null;
@@ -345,6 +354,56 @@ class TaskOrganizerSettings extends HTMLElement {
   }
 
   /**
+   * Role of the current user: 'admin' | 'manager' | 'parent' | null (from get_data, with a
+   * fallback to the HA admin flag until the data is loaded).
+   * @returns {string|null}
+   */
+  _role() {
+    if (this._hass && this._hass.user && this._hass.user.is_admin) return 'admin';
+    return this._myRole || null;
+  }
+
+  /** True for admins and parents with management rights (kids section, wizard, triggers). */
+  _canManage() {
+    const role = this._role();
+    return role === 'admin' || role === 'manager';
+  }
+
+  /**
+   * Rows of the "Parents" list: persons with an HA user plus already configured user ids.
+   * @returns {Array<{uid: string, name: string}>}
+   */
+  _parentRows() {
+    const rows = new Map();
+    for (const u of this._haUsers) rows.set(u.user_id, u.name || u.user_id);
+    for (const [uid, name] of Object.entries(this.users)) {
+      if (!uid.startsWith('person.')) rows.set(uid, name);
+    }
+    const mine = this._hass && this._hass.user;
+    if (mine && mine.id && mine.name && !rows.has(mine.id) && ((this.settings.parents || []).includes(mine.id))) {
+      rows.set(mine.id, mine.name);
+    }
+    for (const uid of [...(this.settings.parents || []), ...(this.settings.parents_manage || [])]) {
+      if (!rows.has(uid)) rows.set(uid, uid);
+    }
+    return [...rows.entries()].map(([uid, name]) => ({ uid, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Current parents lists: the draft if edited, otherwise the stored settings (read-only view). */
+  _parentsState() {
+    return this._parentsDraft || {
+      parents: new Set(this.settings.parents || []),
+      manage: new Set(this.settings.parents_manage || [])
+    };
+  }
+
+  /** Draft of the parents lists, created from the stored settings on the first edit. */
+  _parentsEdit() {
+    if (!this._parentsDraft) this._parentsDraft = this._parentsState();
+    return this._parentsDraft;
+  }
+
+  /**
    * Maps Home Assistant 'person' entities to the local users object.
    * Persons without an HA user are keyed by their entity_id.
    */
@@ -375,6 +434,8 @@ class TaskOrganizerSettings extends HTMLElement {
       this.monthly_history = data.monthly_history || {};
       this.current_month = data.current_month;
       this.current_period_start = data.current_period_start;
+      this._myRole = data.my_role || null;
+      this._haUsers = Array.isArray(data.ha_users) ? data.ha_users : [];
       this._settingsLoaded = true;
       this._render(); 
     }); 
@@ -422,12 +483,16 @@ class TaskOrganizerSettings extends HTMLElement {
 
   /**
    * Builds the websocket calls needed to persist the kid profile drafts.
-   * Only admins may change profiles. Returns null when validation fails.
+   * Only admins and managers may change profiles; only admins change the parents. Returns null when validation fails.
    * @returns {Array<object>|null} - List of websocket payloads.
    */
   _collectKidCalls() {
     const calls = [];
-    if (!this._hass.user || !this._hass.user.is_admin) return calls;
+    if (this._role() === 'admin' && this._parentsDraft) {
+      const st = this._parentsDraft;
+      calls.push({ type: 'task_organizer/set_parents', parents: [...st.parents], parents_manage: [...st.manage] });
+    }
+    if (!this._canManage()) return calls;
     const stored = this.settings.kids || {};
     for (const uid of Object.keys(this.users)) {
       const d = this._kidDrafts[uid];
@@ -517,6 +582,9 @@ class TaskOrganizerSettings extends HTMLElement {
     // Triggers and the wizard memory are managed by dedicated admin-only commands
     delete newSettings.bonus_triggers;
     delete newSettings.wizard;
+    // Roles are changed by the admin-only set_parents command
+    delete newSettings.parents;
+    delete newSettings.parents_manage;
 
     const fgPoints = this.shadowRoot.getElementById('fg-points');
     if (fgPoints) {
@@ -548,6 +616,7 @@ class TaskOrganizerSettings extends HTMLElement {
     
     this._hass.callWS({ type: 'task_organizer/update_settings', settings: newSettings }).then(() => { 
       this._kidDrafts = {};
+      this._parentsDraft = null;
       this._goalDrafts = {};
       this._familyDraft = {};
       alert(this.localize('success')); 
@@ -626,7 +695,7 @@ class TaskOrganizerSettings extends HTMLElement {
     else if (id === 'btn-trig-add') this._addTrigger();
     else if (target.classList.contains('btn-trig-del')) this._removeTrigger(parseInt(target.dataset.index));
     else if (target.classList.contains('kid-emoji-pick')) {
-      if (this._hass.user && this._hass.user.is_admin) {
+      if (this._canManage()) {
         this._kidDraft(target.dataset.uid).avatar = target.dataset.emoji;
         this._render();
       }
@@ -1056,6 +1125,9 @@ class TaskOrganizerSettings extends HTMLElement {
         .kid-emoji-pick:disabled { opacity: 0.5; cursor: default; }
         .family-box { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--divider-color); padding-top: 12px; }
         .family-box h4 { margin: 0; font-size: 14px; }
+        .parent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 6px 0; border-bottom: 1px solid var(--divider-color); }
+        .parent-name { flex: 1 1 140px; font-weight: 500; font-size: 14px; color: var(--primary-text-color); }
+        .parent-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--primary-text-color); }
         .wizard-box { display: flex; flex-direction: column; gap: 6px; }
         .btn-wizard { background: linear-gradient(135deg, #7E57C2, #2196F3); color: white; font-size: 15px; }
         .trig-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px 8px 8px 12px; background: var(--card-background-color); }
@@ -1086,7 +1158,7 @@ class TaskOrganizerSettings extends HTMLElement {
    * @returns {string} - The HTML.
    */
   _renderKidsSection() {
-    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    const isAdmin = this._canManage();
     const dis = isAdmin ? '' : 'disabled';
     const emojis = ['🦊', '🐼', '🦁', '🐯', '🐸', '🐵', '🦄', '🐶', '🐱', '🐰', '🐻', '🐧', '🚀'];
     const fg = this.settings.family_goal || {};
@@ -1163,6 +1235,7 @@ class TaskOrganizerSettings extends HTMLElement {
                 <p class="kids-note">${this.localize('wizard_hint')}</p>
               </div>` : ''}
             ${rows}
+            ${this._renderParentsSection()}
             <div class="family-box">
               <h4>${this.localize('family_goal')}</h4>
               <div class="kid-fields">
@@ -1207,6 +1280,35 @@ class TaskOrganizerSettings extends HTMLElement {
   }
 
   /**
+   * Renders the "Parents" subsection: who may approve (parent) and who may also manage.
+   * Only administrators can change it.
+   * @returns {string} - The HTML.
+   */
+  _renderParentsSection() {
+    const canEdit = this._role() === 'admin';
+    const st = this._parentsState();
+    const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const rows = this._parentRows().map(({ uid, name }) => {
+      const isManager = st.manage.has(uid);
+      const isParent = st.parents.has(uid) || isManager;
+      return `
+        <div class="parent-row">
+          <span class="parent-name">${esc(name)}</span>
+          <label class="parent-check"><input type="checkbox" class="parent-parent" data-uid="${esc(uid)}" ${isParent ? 'checked' : ''} ${canEdit && !isManager ? '' : 'disabled'}> ${this.localize('parents_col_parent')}</label>
+          <label class="parent-check"><input type="checkbox" class="parent-manage" data-uid="${esc(uid)}" ${isManager ? 'checked' : ''} ${canEdit ? '' : 'disabled'}> ${this.localize('parents_col_manage')}</label>
+        </div>`;
+    }).join('');
+    return `
+            <div class="family-box" id="parents-box">
+              <h4>${this.localize('parents_title')}</h4>
+              <p class="kids-note">${this.localize('parents_desc')}</p>
+              <p class="kids-note" style="color: var(--warning-color, #FFA000);">⚠️ ${this.localize('parents_warn')}</p>
+              ${canEdit ? '' : `<p class="kids-note">${this.localize('parents_admin_only')}</p>`}
+              ${rows || `<p class="kids-note">${this.localize('parents_none')}</p>`}
+            </div>`;
+  }
+
+  /**
    * Makes sure the wizard / trigger picker elements are defined. They live in
    * task-organizer-wizard.js, which the integration registers as a resource;
    * the dynamic import is the fallback for manually managed resources.
@@ -1223,10 +1325,10 @@ class TaskOrganizerSettings extends HTMLElement {
   }
 
   /**
-   * Opens the kids mode quick-start wizard (admins only).
+   * Opens the kids mode quick-start wizard (admins and managers).
    */
   async _openWizard() {
-    if (!this._hass.user || !this._hass.user.is_admin) return;
+    if (!this._canManage()) return;
     if (!(await this._ensureWizardLoaded())) {
       alert(this.localize('wizard_missing'));
       return;
@@ -1272,7 +1374,7 @@ class TaskOrganizerSettings extends HTMLElement {
    * @returns {string} - The HTML.
    */
   _renderTriggersSection() {
-    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    const isAdmin = this._canManage();
     const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const triggers = this.settings.bonus_triggers || [];
     const entityName = (id) => {
@@ -1395,6 +1497,16 @@ class TaskOrganizerSettings extends HTMLElement {
       this._kidDraft(el.dataset.uid).enabled = !!ev.target.checked;
       this._render();
     }));
+    root.querySelectorAll('.parent-parent').forEach(el => el.addEventListener('change', (ev) => {
+      const st = this._parentsEdit();
+      if (ev.target.checked) st.parents.add(el.dataset.uid); else { st.parents.delete(el.dataset.uid); st.manage.delete(el.dataset.uid); }
+      this._render();
+    }));
+    root.querySelectorAll('.parent-manage').forEach(el => el.addEventListener('change', (ev) => {
+      const st = this._parentsEdit();
+      if (ev.target.checked) { st.manage.add(el.dataset.uid); st.parents.add(el.dataset.uid); } else st.manage.delete(el.dataset.uid);
+      this._render();
+    }));
     const bind = (selector, key, transform = (v) => v) => {
       root.querySelectorAll(selector).forEach(el => el.addEventListener('input', (ev) => {
         this._kidDraft(el.dataset.uid)[key] = transform(ev.target.value);
@@ -1411,7 +1523,7 @@ class TaskOrganizerSettings extends HTMLElement {
       const valid = this._validBirthday(draft.birthday);
       const yearEl = root.querySelector(`.kid-birth[data-uid="${el.dataset.uid}"]`);
       if (yearEl) {
-        yearEl.disabled = !!valid || !(this._hass.user && this._hass.user.is_admin);
+        yearEl.disabled = !!valid || !this._canManage();
         if (valid) yearEl.value = valid.slice(0, 4);
       }
     }));

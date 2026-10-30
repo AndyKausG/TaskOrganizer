@@ -1,19 +1,20 @@
 /**
  * TaskOrganizer Parents card.
  *
- * A dashboard for the parents (Home Assistant administrators), made for phones:
+ * A dashboard for the parents (administrators and users with the parent role), made for phones:
  *  1. "Freigaben": completions by kids that wait for approval - approve, "not
  *     done" (task is due again) or "cheated" (penalty + strict mode),
  *  2. quick bonus / deduction per kid (+1 +5 -1 -5) with a reason,
  *  3. the last history entries per kid.
  *
- * Everything goes through the admin-only websocket commands approve, reject and
- * adjust_points of the integration. Non-admin users only see a short note.
+ * Everything goes through the websocket commands approve, reject and adjust_points of
+ * the integration, which check the role (admin / manager / parent) in the backend.
+ * Other users only see a short note.
  */
 
 const I18N_PARENTS = {
   en: {
-    title: "Parents", only_parents: "Only for parents. Please sign in with an administrator account.",
+    title: "Parents", only_parents: "Only for parents. Ask an administrator to add your user in the settings (Kids > Parents).",
     loading: "Loading...", approvals: "Approvals", no_approvals: "Nothing to approve right now.",
     approve: "Approve", not_done: "Not done", cheated: "Cheated",
     ago_now: "just now", points_unit: "pts",
@@ -42,7 +43,7 @@ const I18N_PARENTS = {
     icon_cart: "Shopping", icon_bread: "Bread", icon_basket: "Laundry", icon_broom: "Sweeping", icon_package: "Parcel", icon_dog: "Dog", icon_star: "Star"
   },
   de: {
-    title: "Eltern", only_parents: "Nur für Eltern. Bitte mit einem Administrator-Konto anmelden.",
+    title: "Eltern", only_parents: "Nur für Eltern. Ein Administrator kann Ihren Benutzer in den Einstellungen eintragen (Kinder > Eltern).",
     loading: "Lade...", approvals: "Freigaben", no_approvals: "Gerade gibt es nichts freizugeben.",
     approve: "Freigeben", not_done: "Nicht fertig", cheated: "Geschummelt",
     ago_now: "gerade eben", points_unit: "Pkt.",
@@ -186,19 +187,22 @@ class TaskOrganizerParents extends HTMLElement {
     if (!hass) return;
     if (!this._dataLoaded) {
       this._dataLoaded = true;
-      if (this._isAdmin()) this._fetchData();
+      this._fetchData();
       this._render();
     }
     if (!this._unsubEvents && this.isConnected) this._subscribe();
   }
 
-  _isAdmin() {
-    return !!(this._hass && this._hass.user && this._hass.user.is_admin);
+  /** True for the roles admin, manager and parent (role comes from get_data, the backend enforces it). */
+  _isParent() {
+    if (this._hass && this._hass.user && this._hass.user.is_admin) return true;
+    return ['admin', 'manager', 'parent'].includes(this._myRole);
   }
 
   _fetchData() {
     if (!this._hass) return;
     this._hass.callWS({ type: 'task_organizer/get_data' }).then((data) => {
+      this._myRole = data.my_role || null;
       this.pending = data.pending || {};
       this.history = Array.isArray(data.history) ? data.history : [];
       this.points = data.points || {};
@@ -576,7 +580,7 @@ class TaskOrganizerParents extends HTMLElement {
     if (!app) return;
     const title = escParents(this._config.title || this.localize('title'));
     let body;
-    if (!this._isAdmin()) {
+    if (!this._isParent() && this._fetched) {
       body = `<div class="note">🔒 ${escParents(this.localize('only_parents'))}</div>`;
     } else if (!this._fetched) {
       body = `<div class="note">${escParents(this.localize('loading'))}</div>`;
