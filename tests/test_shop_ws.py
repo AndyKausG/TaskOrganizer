@@ -367,3 +367,20 @@ async def test_kid_set_goal(hass, hass_ws_client, setup):
     assert setup.options["kids"][ANNA]["goal_reward"] == "r2"
     assert (await _call(ws, "task_organizer/kid_set_goal", kid_id=ANNA, pin="1234", reward_id=None))["result"]["success"]
     assert "goal_reward" not in setup.options["kids"][ANNA]
+
+
+async def test_penalty_reduces_wallet_even_with_zero_monthly_points(hass, hass_ws_client, setup):
+    """Start of a month: monthly points 0, the saved wallet must still pay the penalty."""
+    ws = await hass_ws_client(hass)
+    data = hass.data[DOMAIN]["data"]
+    data["points"][ANNA] = 0.0
+    data.setdefault("wallet", {})[ANNA] = 30.0
+    res = await _call(ws, "task_organizer/adjust_points", kid_id=ANNA, points=-5, reason="Test")
+    assert res["success"], res
+    assert data["points"][ANNA] == 0.0
+    assert data["wallet"][ANNA] == 25.0
+    entry = data["history"][0]
+    assert entry["points"] == 0 and entry["wallet_points"] == -5
+    # deleting the entry refunds exactly the wallet amount
+    res = await _call(ws, "task_organizer/delete_history_item", entry_id=entry["id"])
+    assert data["wallet"][ANNA] == 30.0 and data["points"][ANNA] == 0.0

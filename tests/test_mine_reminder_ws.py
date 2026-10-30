@@ -229,3 +229,15 @@ async def test_reminder_invalid_target_is_logged_not_fatal(hass, hass_ws_client,
     await hass.async_block_till_done()
     assert set(events) == {tid, second}
     assert "could not be sent" in caplog.text
+
+
+async def test_adult_cannot_take_kids_open_bonus(hass, hass_ws_client, env):
+    admin = await hass_ws_client(hass)
+    await _setup_kid(admin, env)
+    bonus = await _task(admin, category="bonus", interval=365)
+    sam = await hass_ws_client(hass, env["sam"][1])
+    res = (await _call(sam, "task_organizer/my_complete_task", task_id=bonus))["result"]
+    assert res == {"success": False, "error": "not_eligible"}
+    anna = await hass_ws_client(hass, env["anna"][1])
+    res = (await _call(anna, "task_organizer/my_complete_task", task_id=bonus))["result"]
+    assert res["success"] is True

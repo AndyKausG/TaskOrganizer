@@ -102,6 +102,7 @@ from .const import (
 )
 from . import kids_catalog
 from .kids import (
+    ERR_NOT_ELIGIBLE,
     ERR_STEPS_OPEN,
     open_required_steps,
     DEFAULT_CLAIM_MINUTES,
@@ -787,11 +788,23 @@ async def ws_update_settings(hass: HomeAssistant, connection: websocket_api.Acti
     connection.send_result(msg["id"], {"success": True})
 
 
-def _history_revert(data: dict, entry_type: str | None, uid: str, pts: float) -> None:
-    """Take back a history entry: wallet always, monthly points unless it is a shop entry."""
-    _wallet_add(data, uid, -pts)
+def _history_revert(data: dict, entry_type: str | None, uid: str, pts: float, wallet_pts: float | None = None) -> None:
+    """Take back a history entry: wallet always, monthly points unless it is a shop entry.
+
+    ``wallet_pts`` is the amount that actually hit the wallet when it differs
+    from the monthly points (penalties are clamped separately).
+    """
+    _wallet_add(data, uid, -(pts if wallet_pts is None else wallet_pts))
     if entry_type not in WALLET_ONLY_TYPES and uid in data["points"]:
         data["points"][uid] = max(0.0, float(data["points"][uid]) - pts)
+
+
+def _wallet_points_of(entry: dict) -> float | None:
+    """Wallet amount of a history entry when it differs from its points, else None."""
+    try:
+        return float(entry["wallet_points"]) if "wallet_points" in entry else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _history_apply(data: dict, entry_type: str | None, uid: str, pts: float) -> None:
@@ -820,7 +833,7 @@ async def ws_delete_history_item(hass: HomeAssistant, connection: websocket_api.
         u_id = entry_to_delete["user_id"]
         pts = float(entry_to_delete.get("points", 0))
         
-        _history_revert(data, entry_to_delete.get("type"), u_id, pts)
+        _history_revert(data, entry_to_delete.get("type"), u_id, pts, _wallet_points_of(entry_to_delete))
             
         data["history"] = [item for item in history if item["id"] != entry_id]
         
@@ -856,8 +869,9 @@ async def ws_edit_history_item(hass: HomeAssistant, connection: websocket_api.Ac
         old_u_id = entry["user_id"]
         old_pts = float(entry.get("points", 0))
         
-        _history_revert(data, entry.get("type"), old_u_id, old_pts)
+        _history_revert(data, entry.get("type"), old_u_id, old_pts, _wallet_points_of(entry))
         _history_apply(data, entry.get("type"), new_user_id, new_points)
+        entry.pop("wallet_points", None)   # re-applied with the new points
         
         entry["user_id"] = new_user_id
         entry["points"] = new_points
@@ -1405,7 +1419,10 @@ def _apply_adjustment(
     current = float(data["points"].get(kid_id, 0) or 0)
     applied = round(clamp_adjustment(current, points), 1)
     data["points"][kid_id] = round(current + applied, 1)
-    _wallet_add(data, kid_id, applied)
+    # The wallet is clamped on its own: a penalty at the start of a month
+    # (monthly points 0) still reduces the saved shop balance.
+    wallet_before = float((data.get("wallet") or {}).get(kid_id, 0) or 0)
+    wallet_applied = round(_wallet_add(data, kid_id, points if points < 0 else applied) - wallet_before, 1)
     entry = {
         "id": str(uuid.uuid4()),
         "task_id": "",
@@ -1421,6 +1438,8 @@ def _apply_adjustment(
         entry["completion_id"] = completion_id     # undone together with the completion
     if applied != points:
         entry["requested_points"] = points
+    if wallet_applied != applied:
+        entry["wallet_points"] = wallet_applied
     data["history"].insert(0, entry)
     _fire_leaderboard_event_if_changed(hass, old_points, data["points"])
     return applied
@@ -1666,7 +1685,8 @@ async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.Acti
             pts = 0.0
         if uid in data["points"]:
             data["points"][uid] = round(max(0.0, float(data["points"][uid]) - pts), 1)
-        _wallet_add(data, uid, -pts)
+        wallet_pts = _wallet_points_of(h)
+        _wallet_add(data, uid, -(pts if wallet_pts is None else wallet_pts))
         removed_points[uid] = round(removed_points.get(uid, 0.0) + pts, 1)
     data["history"] = [h for h in history if h.get("id") not in group_ids]
 
@@ -2254,7 +2274,16 @@ def _my_context(hass: HomeAssistant, connection, msg: dict, with_task: bool = Tr
     kids = settings.get("kids") or {}
     if not with_task:
         return None, {"kid_id": pid, "settings": settings, "kids": kids}
-    return _task_precheck(hass, pid, msg["task_id"], settings, kids)
+    error, ctx = _task_precheck(hass, pid, msg["task_id"], settings, kids)
+    if error is None and pid not in kids:
+        # Adults (no kid profile) only get their own assigned tasks, not the
+        # kids' open bonus tasks.
+        assignees = ctx["task"].get("assignees") or []
+        if isinstance(assignees, str):
+            assignees = [assignees]
+        if pid not in assignees:
+            return {"success": False, "error": ERR_NOT_ELIGIBLE}, None
+    return error, ctx
 
 
 @websocket_api.websocket_command({
