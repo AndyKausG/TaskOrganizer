@@ -81,6 +81,8 @@ from .const import (
     WS_TYPE_PARENT_COMPLETE_FOR,
     WS_TYPE_MY_COMPLETE_TASK,
     WS_TYPE_MY_CLAIM_TASK,
+    WS_TYPE_KID_TOGGLE_STEP,
+    WS_TYPE_MY_TOGGLE_STEP,
     WS_TYPE_MY_REDEEM,
     WS_TYPE_MY_SET_GOAL,
     WS_TYPE_SET_REWARDS,
@@ -2067,6 +2069,38 @@ async def ws_kid_claim_task(hass: HomeAssistant, connection: websocket_api.Activ
     connection.send_result(msg["id"], await _async_claim(hass, ctx))
 
 
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_TOGGLE_STEP,
+    vol.Required("task_id"): str,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("index"): vol.All(int, vol.Range(min=0, max=99)),
+    vol.Required("done"): bool,
+})
+@websocket_api.async_response
+async def ws_kid_toggle_step(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Tick / untick one subtask as a kid (PIN + eligibility like completing).
+
+    The shared tablet user has no role, so it must not use ``edit_task``.
+    """
+    error, ctx = _kid_task_precheck(hass, msg)
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_toggle_step(hass, ctx, msg["index"], msg["done"]))
+
+
+async def _async_toggle_step(hass: HomeAssistant, ctx: dict, index: int, done: bool) -> dict:
+    subtasks = ctx["task"].get("subtasks") or []
+    if index >= len(subtasks) or not isinstance(subtasks[index], dict):
+        return {"success": False, "error": ERR_NOT_FOUND}
+    subtasks[index]["done"] = bool(done)
+    data = hass.data[DOMAIN]["data"]
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return {"success": True}
+
+
 async def _async_claim(hass: HomeAssistant, ctx: dict) -> dict:
     claim_minutes = ctx["settings"].get("claim_minutes", DEFAULT_CLAIM_MINUTES)
     if isinstance(claim_minutes, bool) or not isinstance(claim_minutes, (int, float)) or claim_minutes <= 0:
@@ -2298,6 +2332,22 @@ async def ws_my_complete_task(hass: HomeAssistant, connection: websocket_api.Act
         connection.send_result(msg["id"], error)
         return
     connection.send_result(msg["id"], await _async_kid_complete(hass, msg["task_id"], ctx, []))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_TOGGLE_STEP,
+    vol.Required("task_id"): str,
+    vol.Required("index"): vol.All(int, vol.Range(min=0, max=99)),
+    vol.Required("done"): bool,
+})
+@websocket_api.async_response
+async def ws_my_toggle_step(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Tick / untick one subtask as the calling user."""
+    error, ctx = _my_context(hass, connection, msg)
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_toggle_step(hass, ctx, msg["index"], msg["done"]))
 
 
 @websocket_api.websocket_command({
@@ -3698,6 +3748,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_kid_verify_pin)
     websocket_api.async_register_command(hass, ws_kid_complete_task)
     websocket_api.async_register_command(hass, ws_kid_claim_task)
+    websocket_api.async_register_command(hass, ws_kid_toggle_step)
+    websocket_api.async_register_command(hass, ws_my_toggle_step)
     websocket_api.async_register_command(hass, ws_wizard_catalog)
     websocket_api.async_register_command(hass, ws_wizard_preview)
     websocket_api.async_register_command(hass, ws_wizard_apply)

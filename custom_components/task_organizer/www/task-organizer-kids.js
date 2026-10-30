@@ -1460,10 +1460,15 @@ class TaskOrganizerKids extends HTMLElement {
   async _toggleSubtask(taskId, index) {
     const task = this.tasks[taskId];
     if (!task || !Array.isArray(task.subtasks) || !task.subtasks[index]) return;
-    task.subtasks = task.subtasks.map((st, i) => i === index ? { ...st, done: !st.done } : st);
+    const done = !task.subtasks[index].done;
+    task.subtasks = task.subtasks.map((st, i) => i === index ? { ...st, done } : st);
     this._render();
     try {
-      await this._hass.callWS({ type: 'task_organizer/edit_task', task_id: taskId, subtasks: task.subtasks });
+      // Kid/own-device command: the tablet user has no role for edit_task
+      const res = this._session
+        ? await this._hass.callWS(this._kidCmd('toggle_step', { task_id: taskId, index, done }))
+        : await this._hass.callWS({ type: 'task_organizer/edit_task', task_id: taskId, subtasks: task.subtasks });
+      if (res && res.success === false) { this._handleActionError(res); this._fetchData(); }
     } catch (err) {
       console.error("TaskOrganizer Kids: could not save subtask", err);
       this._showToast(this.localize('err_generic'));
