@@ -39,6 +39,7 @@ from .const import (
     EVENT_TASK_REMINDER,
     EVENT_REWARD_REQUESTED,
     EVENT_REWARD_RESOLVED,
+    EVENT_PRAISE,
     EVENT_MOBILE_APP_ACTION,
     ACTION_REWARD_APPROVE,
     ACTION_REWARD_REJECT,
@@ -89,6 +90,9 @@ from .const import (
     WS_TYPE_KID_REDEEM,
     WS_TYPE_KID_SET_GOAL,
     WS_TYPE_REDEMPTION_RESOLVE,
+    WS_TYPE_SEND_PRAISE,
+    WS_TYPE_KID_PRAISE_SEEN,
+    WS_TYPE_MY_PRAISE_SEEN,
     SERVICE_ADJUST_POINTS,
     SERVICE_ADD_TASK,
     SERVICE_COMPLETE_TASK_BY_NAME,
@@ -129,6 +133,10 @@ from .kids import (
     TYPE_TASK,
     TYPE_REDEEM,
     TYPE_REFUND,
+    TYPE_PRAISE,
+    PRAISE_STICKERS,
+    MAX_PRAISE_MESSAGE,
+    MAX_PRAISE_PER_KID,
     WALLET_ONLY_TYPES,
     ERR_UNKNOWN_REWARD,
     ERR_REWARD_INACTIVE,
@@ -353,6 +361,7 @@ async def ws_get_data(hass: HomeAssistant, connection: websocket_api.ActiveConne
     response_data.setdefault("birthday_levelup", {})
     response_data.setdefault("wallet", {})
     response_data.setdefault("redemptions", {})
+    response_data.setdefault("praise", [])
     response_data["family_points"] = _family_points(hass)
     response_data["my_role"] = _role(hass, connection.user)
     response_data["ha_users"] = _parent_candidates(hass, entry.options)
@@ -767,7 +776,7 @@ _PROTECTED_SETTING_KEYS = (
     "pending", "history", "points", "tasks", "templates",
     "birthday_handled", "birthday_levelup", "monthly_history",
     # Reward shop: wallet / redemptions are runtime data, rewards have set_rewards
-    "wallet", "redemptions", "rewards",
+    "wallet", "redemptions", "rewards", "praise",
     # Roles are only changed through the admin-only set_parents command
     "parents", "parents_manage",
 )
@@ -1632,6 +1641,107 @@ async def ws_adjust_points(hass: HomeAssistant, connection: websocket_api.Active
         "success": True, "applied": applied,
         "total": hass.data[DOMAIN]["data"]["points"].get(kid_id, 0),
     })
+
+
+# ---------------------------------------------------------------------------
+# Praise: social recognition without points (parents -> kid)
+# ---------------------------------------------------------------------------
+
+def _sender_name(hass: HomeAssistant, user) -> str:
+    """Name of the person linked to the sending user, else the Home Assistant user name."""
+    uid = getattr(user, "id", None)
+    for state in hass.states.async_all("person"):
+        if uid and state.attributes.get("user_id") == uid:
+            return state.attributes.get("friendly_name") or state.entity_id
+    return getattr(user, "name", None) or ""
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_SEND_PRAISE,
+    vol.Required("kid_id"): str,
+    vol.Optional("message", default=""): vol.All(str, vol.Length(max=MAX_PRAISE_MESSAGE)),
+    vol.Required("sticker"): vol.In(PRAISE_STICKERS),
+})
+@websocket_api.async_response
+async def ws_send_praise(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Praise a kid with a sticker and a short message (admin / manager / parent). No points."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
+        return
+    kid_id = _get_user_id(hass, msg["kid_id"]) or msg["kid_id"]
+    if kid_id not in (_get_entry(hass).options.get("kids") or {}):
+        connection.send_error(msg["id"], "unknown_person", "Unknown kid")
+        return
+    message = msg["message"].strip()
+    from_name = _sender_name(hass, connection.user)
+    sticker = msg["sticker"]
+    data = hass.data[DOMAIN]["data"]
+    now = dt_util.utcnow().isoformat()
+    praise_id = str(uuid.uuid4())
+    praise = data.setdefault("praise", [])
+    praise.append({
+        "id": praise_id, "kid_id": kid_id, "from_name": from_name, "message": message,
+        "sticker": sticker, "timestamp": now, "seen": False,
+    })
+    # keep only the newest entries per kid
+    own = [p for p in praise if p.get("kid_id") == kid_id]
+    if len(own) > MAX_PRAISE_PER_KID:
+        drop = {p["id"] for p in own[:len(own) - MAX_PRAISE_PER_KID]}
+        data["praise"] = [p for p in praise if p["id"] not in drop]
+    kid_name = _participant_name(hass, kid_id)
+    data["history"].insert(0, {
+        "id": str(uuid.uuid4()), "task_id": "", "task_name": message or sticker, "user_id": kid_id,
+        "points": 0, "timestamp": now, "type": TYPE_PRAISE, "reason": message, "sticker": sticker,
+        "from_name": from_name,
+    })
+    hass.bus.async_fire(EVENT_PRAISE, {
+        "kid_id": kid_id, "kid_name": kid_name, "from_name": from_name, "message": message, "sticker": sticker,
+    })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    connection.send_result(msg["id"], {"success": True, "praise_id": praise_id})
+
+
+async def _async_praise_seen(hass: HomeAssistant, kid_id: str, praise_id: str) -> dict:
+    """Mark a praise of this kid as seen (a kid can only mark its own)."""
+    data = hass.data[DOMAIN]["data"]
+    item = next((p for p in data.get("praise", []) if p.get("id") == praise_id and p.get("kid_id") == kid_id), None)
+    if item is None:
+        return {"success": False, "error": ERR_NOT_FOUND}
+    if not item.get("seen"):
+        item["seen"] = True
+        await hass.data[DOMAIN]["store"].async_save(data)
+        hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return {"success": True}
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_PRAISE_SEEN,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("praise_id"): str,
+})
+@websocket_api.async_response
+async def ws_kid_praise_seen(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """A kid (PIN) has seen a praise."""
+    result, _settings, _kids = _verify_kid(hass, msg["kid_id"], msg.get("pin"))
+    if not result["success"]:
+        connection.send_result(msg["id"], result)
+        return
+    connection.send_result(msg["id"], await _async_praise_seen(hass, msg["kid_id"], msg["praise_id"]))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_PRAISE_SEEN,
+    vol.Required("praise_id"): str,
+})
+@websocket_api.async_response
+async def ws_my_praise_seen(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """The calling user (own device) has seen a praise."""
+    error, ctx = _my_context(hass, connection, msg, with_task=False)
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_praise_seen(hass, ctx["kid_id"], msg["praise_id"]))
 
 
 # ---------------------------------------------------------------------------
@@ -3268,6 +3378,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             uid: round(max(0.0, float(pts or 0)), 1) for uid, pts in (data.get("points") or {}).items()
         }
     data.setdefault("redemptions", {})
+    data.setdefault("praise", [])
 
     # Additive migration (kids mode): every task/template gets a valid
     # category ("basis" | "bonus" | "auftrag") and a min_age. Nothing is removed.
@@ -3353,7 +3464,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "monthly_history": {}, "current_month": dt_util.now().strftime("%Y-%m"), 
             "current_period_start": dt_util.utcnow().isoformat(),
             "templates": {}, "pending": {}, "birthday_handled": {}, "birthday_levelup": {},
-            "wallet": {}, "redemptions": {},
+            "wallet": {}, "redemptions": {}, "praise": [],
         }
         hass.data[DOMAIN]["data"] = new_data
         
@@ -3805,6 +3916,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_kid_redeem)
     websocket_api.async_register_command(hass, ws_kid_set_goal)
     websocket_api.async_register_command(hass, ws_redemption_resolve)
+    websocket_api.async_register_command(hass, ws_send_praise)
+    websocket_api.async_register_command(hass, ws_kid_praise_seen)
+    websocket_api.async_register_command(hass, ws_my_praise_seen)
     
     # Register static path for frontend cards
     frontend_path = hass.config.path(f"custom_components/{DOMAIN}/www")

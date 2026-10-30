@@ -49,11 +49,18 @@ TYPE_MISSED = "missed"
 TYPE_SKIPPED = "skipped"
 TYPE_REDEEM = "redeem"
 TYPE_REFUND = "refund"
+TYPE_PRAISE = "praise"
 HISTORY_TYPES = (
     TYPE_TASK, TYPE_BONUS, TYPE_PENALTY, TYPE_BIRTHDAY, TYPE_MISSED, TYPE_SKIPPED, TYPE_REDEEM, TYPE_REFUND,
+    TYPE_PRAISE,
 )
 # Reward shop entries only move the wallet, never the monthly points / goals
 WALLET_ONLY_TYPES = (TYPE_REDEEM, TYPE_REFUND)
+
+# Praise (social recognition, no points)
+PRAISE_STICKERS = ("❤️", "⭐", "🌟", "👏", "🏆", "💪", "🦸", "🎉", "😊", "🙌")
+MAX_PRAISE_MESSAGE = 120
+MAX_PRAISE_PER_KID = 50
 
 # Reward shop limits
 MAX_REWARDS = 30

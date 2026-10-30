@@ -80,6 +80,7 @@ COMMANDS = {
     "approve": ({"pending_id": "nope"}, DAILY),
     "reject": ({"pending_id": "nope", "mode": "not_done"}, DAILY),
     "adjust_points": ({"kid_id": ANNA, "points": 1, "reason": "Help"}, DAILY),
+    "send_praise": ({"kid_id": ANNA, "message": "Well done!", "sticker": "⭐"}, DAILY),
     "undo_completion": ({"history_id": "nope"}, DAILY),
     "parent_task_action": ({"task_id": "nope", "action": "skip_today"}, DAILY),
     "parent_complete_for": ({"task_id": "nope", "kid_id": ANNA}, DAILY),
