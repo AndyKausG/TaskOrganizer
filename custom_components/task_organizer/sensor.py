@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_OVERDUE_DAYS, DOMAIN, EVENT_TASK_UPDATED
+from .kids import resolve_participant_name, sanitize_settings
 
 async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities):
     """
@@ -237,7 +238,8 @@ class TaskOrganizerSettingsSensor(TaskOrganizerBaseSensor):
     @property
     def extra_state_attributes(self) -> dict:
         """Return the settings as state attributes."""
-        return self._data.get("settings", {})
+        # Never expose PIN hashes / salts of the kid profiles
+        return sanitize_settings(self._data.get("settings", {}))
 
 
 class TaskOrganizerPointsSensor(TaskOrganizerBaseSensor):
@@ -260,13 +262,10 @@ class TaskOrganizerPointsSensor(TaskOrganizerBaseSensor):
         pts = self._data.get("points", {})
         point_goals = self._data.get("settings", {}).get("point_goals", {})
 
+        person_states = self.hass.states.async_all("person")
         points_list = []
         for uid, p in pts.items():
-            name = uid
-            for state in self.hass.states.async_all("person"):
-                if state.attributes.get("user_id") == uid:
-                    name = state.attributes.get("friendly_name", uid)
-                    break
+            name = resolve_participant_name(person_states, uid)
             
             goal = point_goals.get(uid, 0)
             entry = {"user_id": uid, "name": name, "points": p, "goal": goal}
@@ -297,10 +296,7 @@ class TaskOrganizerLeaderboardSensor(TaskOrganizerBaseSensor):
         best_user_id = max(points, key=points.get)
         if points[best_user_id] == 0:
             return "Niemand"
-        for state in self.hass.states.async_all("person"):
-            if state.attributes.get("user_id") == best_user_id:
-                return state.attributes.get("friendly_name", best_user_id)
-        return best_user_id
+        return resolve_participant_name(self.hass.states.async_all("person"), best_user_id)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -309,13 +305,10 @@ class TaskOrganizerLeaderboardSensor(TaskOrganizerBaseSensor):
         point_goals = self._data.get("settings", {}).get("point_goals", {})
 
         sorted_users = sorted(points.items(), key=lambda item: item[1], reverse=True)
+        person_states = self.hass.states.async_all("person")
         leaderboard = []
         for uid, pts in sorted_users:
-            name = uid
-            for state in self.hass.states.async_all("person"):
-                if state.attributes.get("user_id") == uid:
-                    name = state.attributes.get("friendly_name", uid)
-                    break
+            name = resolve_participant_name(person_states, uid)
             
             goal = point_goals.get(uid, 0)
             entry = {"user_id": uid, "name": name, "points": pts, "goal": goal}

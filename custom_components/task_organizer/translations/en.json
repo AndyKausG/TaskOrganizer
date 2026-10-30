@@ -72,6 +72,11 @@
         "interval": { "name": "Interval (Days, Optional)", "description": "How often should the task be done? 0 for one-time tasks. If not set, the value from the template or default (7) is used." },
         "complexity": { "name": "Points (1-10, Optional)", "description": "How many points is the task worth?" },
         "icon": { "name": "Icon (Optional)", "description": "An mdi icon, e.g., mdi:broom" },
+        "category": { "name": "Category (Optional)", "description": "Kids mode category: basis (assigned duty), bonus (open for all kids) or auftrag (one-time assignment). Default: basis." },
+        "min_age": { "name": "Minimum age (Optional)", "description": "Minimum age in years a kid needs to do this task (0 = no restriction)." },
+        "requires_approval": { "name": "Requires parent approval (Optional)", "description": "Kids mode - a completion by a kid only counts after a parent approved it." },
+        "available_from": { "name": "Available from (Optional)", "description": "Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit." },
+        "available_until": { "name": "Available until (Optional)", "description": "Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit." },
         "assignees": { "name": "Assignees (Optional)", "description": "Comma-separated user IDs or person entities." },
         "override_overdue_days": { "name": "Days until overdue (Optional)", "description": "Overrides the global setting for the number of days after which this task is considered overdue." },
         "subtasks": { "name": "Subtasks (Optional)", "description": "A list of subtasks." }
@@ -110,6 +115,11 @@
         "interval": { "name": "Interval (Days, Optional)", "description": "How often should the task be done?" },
         "complexity": { "name": "Points (1-10, Optional)", "description": "How many points is the task worth?" },
         "icon": { "name": "Icon (Optional)", "description": "An mdi icon, e.g., mdi:broom" },
+        "category": { "name": "Category (Optional)", "description": "Kids mode category: basis (assigned duty), bonus (open for all kids) or auftrag (one-time assignment). Default: basis." },
+        "min_age": { "name": "Minimum age (Optional)", "description": "Minimum age in years a kid needs to do this task (0 = no restriction)." },
+        "requires_approval": { "name": "Requires parent approval (Optional)", "description": "Kids mode - a completion by a kid only counts after a parent approved it." },
+        "available_from": { "name": "Available from (Optional)", "description": "Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit." },
+        "available_until": { "name": "Available until (Optional)", "description": "Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit." },
         "assignees": { "name": "Assignees (Optional)", "description": "Comma-separated user IDs or person entities." },
         "override_overdue_days": { "name": "Days until overdue (Optional)", "description": "Overrides the global setting." },
         "subtasks": { "name": "Subtasks (Optional)", "description": "The updated list of subtasks." }
@@ -125,6 +135,11 @@
         "interval": { "name": "Interval (Days, Optional)", "description": "How often should the task be done?" },
         "complexity": { "name": "Points (1-10, Optional)", "description": "How many points is the task worth?" },
         "icon": { "name": "Icon (Optional)", "description": "An mdi icon, e.g., mdi:broom" },
+        "category": { "name": "Category (Optional)", "description": "Kids mode category: basis (assigned duty), bonus (open for all kids) or auftrag (one-time assignment). Default: basis." },
+        "min_age": { "name": "Minimum age (Optional)", "description": "Minimum age in years a kid needs to do this task (0 = no restriction)." },
+        "requires_approval": { "name": "Requires parent approval (Optional)", "description": "Kids mode - a completion by a kid only counts after a parent approved it." },
+        "available_from": { "name": "Available from (Optional)", "description": "Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit." },
+        "available_until": { "name": "Available until (Optional)", "description": "Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit." },
         "assignees": { "name": "Assignees (Optional)", "description": "Comma-separated user IDs or person entities." },
         "subtasks": { "name": "Subtasks (Optional)", "description": "Subtasks for this template." }
       }
@@ -142,7 +157,21 @@
       "fields": {
         "template_name": { "name": "Template Name", "description": "The exact name of the template to be edited." },
         "new_name": { "name": "New Name (Optional)", "description": "The new name for the template." },
+        "category": { "name": "Category (Optional)", "description": "Kids mode category: basis (assigned duty), bonus (open for all kids) or auftrag (one-time assignment). Default: basis." },
+        "min_age": { "name": "Minimum age (Optional)", "description": "Minimum age in years a kid needs to do this task (0 = no restriction)." },
+        "requires_approval": { "name": "Requires parent approval (Optional)", "description": "Kids mode - a completion by a kid only counts after a parent approved it." },
+        "available_from": { "name": "Available from (Optional)", "description": "Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit." },
+        "available_until": { "name": "Available until (Optional)", "description": "Kids mode - a kid can only complete the task until this local time (HH:MM). Empty = no limit." },
         "subtasks": { "name": "Subtasks (Optional)", "description": "The updated list of subtasks." }
+      }
+    },
+    "adjust_points": {
+      "name": "Adjust points",
+      "description": "Gives a kid bonus points or deducts points (e.g. as a consequence) and records it in the history with a reason. Admin only. A kid never drops below 0 points.",
+      "fields": {
+        "kid_id": { "name": "Kid", "description": "The kid's person entity (or participant ID)." },
+        "points": { "name": "Points", "description": "Positive for a bonus, negative for a deduction (1 to 50, either way)." },
+        "reason": { "name": "Reason", "description": "Why? Shown in the protocol (max. 80 characters)." }
       }
     }
   }

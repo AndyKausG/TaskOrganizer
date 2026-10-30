@@ -10,7 +10,9 @@ const I18N_PROTOCOL = {
     edit_hover: "Edit entry", delete_hover: "Delete entry",
     entry_saved: "Entry saved!", entry_deleted: "Entry deleted!",
     height_lbl: "Height", width_lbl: "Width", title_lbl: "Title",
-    items_per_page_lbl: "Items per Page", filter_by_lbl: "Filter By"
+    items_per_page_lbl: "Items per Page", filter_by_lbl: "Filter By",
+    type_task: "Task", type_bonus: "Bonus", type_penalty: "Deduction", type_birthday: "Birthday", type_missed: "Missed",
+    undo: "Undo", undo_hover: "Undo completion", confirm_undo: "Points are deducted, the task is open again - without a penalty.", entry_undone: "Entry undone!"
   },
   de: { 
     title: "Haushaltsprotokoll", empty: "Keine Einträge.", unknown: "Unbekannt", 
@@ -20,9 +22,20 @@ const I18N_PROTOCOL = {
     edit_hover: "Eintrag bearbeiten", delete_hover: "Eintrag löschen",
     entry_saved: "Eintrag gespeichert!", entry_deleted: "Eintrag gelöscht!",
     height_lbl: "Höhe", width_lbl: "Breite", title_lbl: "Titel",
-    items_per_page_lbl: "Einträge pro Seite", filter_by_lbl: "Filtern nach"
+    items_per_page_lbl: "Einträge pro Seite", filter_by_lbl: "Filtern nach",
+    type_task: "Aufgabe", type_bonus: "Bonus", type_penalty: "Abzug", type_birthday: "Geburtstag", type_missed: "Verpasst",
+    undo: "Rückgängig", undo_hover: "Erledigung rückgängig machen", confirm_undo: "Punkte werden abgezogen, Aufgabe ist wieder offen – ohne Abzug.", entry_undone: "Eintrag rückgängig gemacht!"
   }
 };
+
+/** Icons of the history entry types (legacy entries without a type are tasks). */
+const PROTOCOL_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️' };
+
+/** Escapes text for safe use inside innerHTML templates. */
+function escProtocol(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 /**
  * Register card in the Home Assistant Card Picker.
@@ -96,11 +109,25 @@ class TaskOrganizerProtocol extends HTMLElement {
     }
   }
 
+  /**
+   * Participant ID of a person entity: the linked HA user_id if present,
+   * otherwise the person entity_id (persons without a user account, e.g. kids).
+   * @param {string} entityId - The person entity_id.
+   * @param {object} state - The person state object.
+   * @returns {string} - The participant ID used for points/history/assignees.
+   */
+  static participantId(entityId, state) {
+    return (state && state.attributes && state.attributes.user_id) || entityId;
+  }
+
+  /**
+   * Maps 'person' entities to the local users object (persons without an HA user use their entity_id).
+   */
   _mapUsers() { 
     for (const entityId in this._hass.states) { 
       if (entityId.startsWith('person.')) { 
         const state = this._hass.states[entityId]; 
-        if (state.attributes.user_id) this.users[state.attributes.user_id] = state.attributes.friendly_name || entityId; 
+        this.users[TaskOrganizerProtocol.participantId(entityId, state)] = state.attributes.friendly_name || entityId; 
       } 
     } 
   }
@@ -120,6 +147,7 @@ class TaskOrganizerProtocol extends HTMLElement {
     const entryId = target.dataset.id;
     if (target.classList.contains('btn-edit')) this._openEditModal(entryId);
     if (target.classList.contains('btn-delete')) this._deleteEntry(entryId);
+    if (target.classList.contains('btn-undo')) this._undoEntry(entryId);
     if (target.id === 'btn-edit-cancel') this._closeModal();
     if (target.id === 'btn-edit-save') this._saveEdit();
     if (target.id === 'btn-prev-page') { this.currentPage = Math.max(1, this.currentPage - 1); this.render(); }
@@ -145,10 +173,42 @@ class TaskOrganizerProtocol extends HTMLElement {
     this._hass.callWS({ type: 'task_organizer/edit_history_item', entry_id: this.editingEntryId, points: points, user_id: userId }).then(() => { this._closeModal(); this._fetchData(); }); 
   }
 
+  /** Undo a task completion (admins only): points back, task open again, no penalty. */
+  _undoEntry(entryId) {
+    if (confirm(this.localize('confirm_undo'))) {
+      this._hass.callWS({ type: 'task_organizer/undo_completion', history_id: entryId }).then(() => this._fetchData());
+    }
+  }
+
   _deleteEntry(entryId) { 
     if (confirm(this.localize('confirm_delete'))) { 
       this._hass.callWS({ type: 'task_organizer/delete_history_item', entry_id: entryId }).then(() => this._fetchData());
     } 
+  }
+
+  /** Renders one history entry: icon by type, name, reason, who and when, signed points. */
+  _renderEntry(entry) {
+    const type = PROTOCOL_TYPE_ICONS[entry.type] ? entry.type : 'task';
+    const points = parseFloat(entry.points) || 0;
+    // Bonus / deduction entries are named by their reason; tasks show the reason as an extra line
+    const name = (type === 'bonus' || type === 'penalty') ? (entry.reason || entry.task_name) : entry.task_name;
+    const extra = (type === 'task' || type === 'birthday') && entry.reason ? entry.reason : '';
+    const label = this.localize('type_' + type);
+    return `
+      <div class="hist-item type-${type}">
+        <div class="type-icon" title="${escProtocol(label)}" aria-label="${escProtocol(label)}">${PROTOCOL_TYPE_ICONS[type]}</div>
+        <div style="flex:1; min-width:0;">
+          <span class="task-name">${escProtocol(name)}</span>
+          ${extra ? `<span class="reason">${escProtocol(extra)}</span>` : ''}
+          <span class="meta">${new Date(entry.timestamp).toLocaleString()} • ${escProtocol(this.users[entry.user_id] || this.localize('unknown'))}</span>
+        </div>
+        <div class="actions">
+          <span class="points-badge ${points < 0 ? 'neg' : ''}">${type === 'missed' ? '0' : points < 0 ? '−' + Math.abs(points) : '+' + points}</span>
+          ${type === 'task' && this._hass && this._hass.user && this._hass.user.is_admin ? `<button class="action-btn btn-undo" data-id="${escProtocol(entry.id)}" title="${escProtocol(this.localize('undo_hover'))}" aria-label="${escProtocol(this.localize('undo'))}"><ha-icon icon="mdi:undo-variant"></ha-icon></button>` : ''}
+          <button class="action-btn btn-edit" data-id="${escProtocol(entry.id)}" title="${this.localize('edit_hover')}"><ha-icon icon="mdi:pencil"></ha-icon></button>
+          <button class="action-btn btn-delete" data-id="${escProtocol(entry.id)}" title="${this.localize('delete_hover')}"><ha-icon icon="mdi:delete"></ha-icon></button>
+        </div>
+      </div>`;
   }
 
   render() {
@@ -165,13 +225,18 @@ class TaskOrganizerProtocol extends HTMLElement {
         ha-card { padding: 16px; display: flex; flex-direction: column; height: ${this.config.card_height || 'auto'}; overflow-y: auto; }
         .header { font-size: 20px; font-weight: bold; margin-bottom: 10px; }
         .protocol-list { display: flex; flex-direction: column; gap: 10px; }
-        .hist-item { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-radius: 8px; border: 1px solid var(--divider-color); }
+        .hist-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border-radius: 8px; border: 1px solid var(--divider-color); }
+        .hist-item.type-penalty { border-color: var(--warning-color, #FFA000); }
+        .type-icon { flex: none; width: 28px; text-align: center; font-size: 20px; line-height: 1; }
+        .reason { display: block; font-size: 13px; color: var(--primary-text-color); }
+        .points-badge.neg { color: var(--error-color, #F44336); }
         .task-name { font-weight: bold; display: block; }
         .meta { font-size: 12px; color: var(--secondary-text-color); }
         .actions { display: flex; align-items: center; gap: 4px; }
         .points-badge { font-weight: bold; color: var(--primary-color); margin-right: 8px; }
         .action-btn { background: transparent; border: none; cursor: pointer; color: var(--secondary-text-color); padding: 8px; border-radius: 50%; width: 40px; height: 40px; }
         .action-btn:hover { background: var(--secondary-background-color); color: var(--primary-text-color); }
+        .btn-undo { color: var(--warning-color, #FFA000); }
         .btn-edit { color: var(--info-color, #2196F3); } 
         .btn-delete { color: var(--error-color, #F44336); }
         .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
@@ -184,19 +249,7 @@ class TaskOrganizerProtocol extends HTMLElement {
       <ha-card>
         <div class="header">${this.config.title || this.localize('title')}</div>
         <div class="protocol-list">
-          ${paginated.map(entry => `
-            <div class="hist-item">
-              <div style="flex:1; min-width:0;">
-                <span class="task-name">${entry.task_name}</span>
-                <span class="meta">${new Date(entry.timestamp).toLocaleString()} • ${this.users[entry.user_id] || this.localize('unknown')}</span>
-              </div>
-              <div class="actions">
-                <span class="points-badge">+${entry.points}</span>
-                <button class="action-btn btn-edit" data-id="${entry.id}" title="${this.localize('edit_hover')}"><ha-icon icon="mdi:pencil"></ha-icon></button>
-                <button class="action-btn btn-delete" data-id="${entry.id}" title="${this.localize('delete_hover')}"><ha-icon icon="mdi:delete"></ha-icon></button>
-              </div>
-            </div>
-          `).join('')}
+          ${paginated.map(entry => this._renderEntry(entry)).join('')}
         </div>
         <div class="pagination">
           <ha-button id="btn-prev-page" ${this.currentPage === 1 ? 'disabled' : ''}>${this.localize('prev')}</ha-button>

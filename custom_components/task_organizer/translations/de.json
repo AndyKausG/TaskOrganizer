@@ -72,6 +72,11 @@
         "interval": { "name": "Intervall (Tage, Optional)", "description": "Wie oft muss die Aufgabe erledigt werden? 0 für einmalige Aufgaben. Wenn nicht gesetzt, wird der Wert aus der Vorlage oder der Standard (7) verwendet." },
         "complexity": { "name": "Punkte (1-10, Optional)", "description": "Wie viele Punkte ist die Aufgabe wert?" },
         "icon": { "name": "Icon (Optional)", "description": "Ein mdi-Icon, z.B. mdi:broom" },
+        "category": { "name": "Kategorie (Optional)", "description": "Kindermodus-Kategorie: basis (feste Pflicht), bonus (offen für alle Kinder) oder auftrag (einmaliger Auftrag). Standard: basis." },
+        "min_age": { "name": "Mindestalter (Optional)", "description": "Mindestalter in Jahren, das ein Kind für diese Aufgabe braucht (0 = keine Einschränkung)." },
+        "requires_approval": { "name": "Freigabe durch Eltern nötig (Optional)", "description": "Kindermodus - eine Erledigung durch ein Kind zählt erst, nachdem Mama oder Papa sie freigegeben haben." },
+        "available_from": { "name": "Erst ab (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe erst ab dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
+        "available_until": { "name": "Nur bis (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe nur bis zu dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
         "assignees": { "name": "Bearbeiter (Optional)", "description": "Komma getrennte User-IDs oder person.name Entitäten." },
         "override_overdue_days": { "name": "Tage bis überfällig (optional)", "description": "Überschreibt die globale Einstellung für die Anzahl der Tage, nach denen diese Aufgabe als überfällig gilt." },
         "subtasks": { "name": "Unteraufgaben (Optional)", "description": "Eine Liste von Unteraufgaben." }
@@ -110,6 +115,11 @@
         "interval": { "name": "Intervall (Tage, Optional)", "description": "Wie oft muss die Aufgabe erledigt werden?" },
         "complexity": { "name": "Punkte (1-10, Optional)", "description": "Wie viele Punkte ist die Aufgabe wert?" },
         "icon": { "name": "Icon (Optional)", "description": "Ein mdi-Icon, z.B. mdi:broom" },
+        "category": { "name": "Kategorie (Optional)", "description": "Kindermodus-Kategorie: basis (feste Pflicht), bonus (offen für alle Kinder) oder auftrag (einmaliger Auftrag). Standard: basis." },
+        "min_age": { "name": "Mindestalter (Optional)", "description": "Mindestalter in Jahren, das ein Kind für diese Aufgabe braucht (0 = keine Einschränkung)." },
+        "requires_approval": { "name": "Freigabe durch Eltern nötig (Optional)", "description": "Kindermodus - eine Erledigung durch ein Kind zählt erst, nachdem Mama oder Papa sie freigegeben haben." },
+        "available_from": { "name": "Erst ab (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe erst ab dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
+        "available_until": { "name": "Nur bis (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe nur bis zu dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
         "assignees": { "name": "Bearbeiter (Optional)", "description": "Komma getrennte User-IDs oder person.name Entitäten." },
         "override_overdue_days": { "name": "Tage bis überfällig (Optional)", "description": "Überschreibt die globale Einstellung." },
         "subtasks": { "name": "Unteraufgaben (Optional)", "description": "Die aktualisierte Liste der Unteraufgaben." }
@@ -125,6 +135,11 @@
         "interval": { "name": "Intervall (Tage, Optional)", "description": "Wie oft muss die Aufgabe erledigt werden?" },
         "complexity": { "name": "Punkte (1-10, Optional)", "description": "Wie viele Punkte ist die Aufgabe wert?" },
         "icon": { "name": "Icon (Optional)", "description": "Ein mdi-Icon, z.B. mdi:broom" },
+        "category": { "name": "Kategorie (Optional)", "description": "Kindermodus-Kategorie: basis (feste Pflicht), bonus (offen für alle Kinder) oder auftrag (einmaliger Auftrag). Standard: basis." },
+        "min_age": { "name": "Mindestalter (Optional)", "description": "Mindestalter in Jahren, das ein Kind für diese Aufgabe braucht (0 = keine Einschränkung)." },
+        "requires_approval": { "name": "Freigabe durch Eltern nötig (Optional)", "description": "Kindermodus - eine Erledigung durch ein Kind zählt erst, nachdem Mama oder Papa sie freigegeben haben." },
+        "available_from": { "name": "Erst ab (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe erst ab dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
+        "available_until": { "name": "Nur bis (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe nur bis zu dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
         "assignees": { "name": "Bearbeiter (Optional)", "description": "Komma getrennte User-IDs oder person.name Entitäten." },
         "subtasks": { "name": "Unteraufgaben (Optional)", "description": "Unteraufgaben für diese Vorlage." }
       }
@@ -147,8 +162,22 @@
         "interval": { "name": "Intervall (Tage, Optional)", "description": "Wie oft muss die Aufgabe erledigt werden?" },
         "complexity": { "name": "Punkte (1-10, Optional)", "description": "Wie viele Punkte ist die Aufgabe wert?" },
         "icon": { "name": "Icon (Optional)", "description": "Ein mdi-Icon, z.B. mdi:broom" },
+        "category": { "name": "Kategorie (Optional)", "description": "Kindermodus-Kategorie: basis (feste Pflicht), bonus (offen für alle Kinder) oder auftrag (einmaliger Auftrag). Standard: basis." },
+        "min_age": { "name": "Mindestalter (Optional)", "description": "Mindestalter in Jahren, das ein Kind für diese Aufgabe braucht (0 = keine Einschränkung)." },
+        "requires_approval": { "name": "Freigabe durch Eltern nötig (Optional)", "description": "Kindermodus - eine Erledigung durch ein Kind zählt erst, nachdem Mama oder Papa sie freigegeben haben." },
+        "available_from": { "name": "Erst ab (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe erst ab dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
+        "available_until": { "name": "Nur bis (Optional)", "description": "Kindermodus - ein Kind kann die Aufgabe nur bis zu dieser Ortszeit erledigen (HH:MM). Leer = keine Begrenzung." },
         "assignees": { "name": "Bearbeiter (Optional)", "description": "Komma getrennte User-IDs oder person.name Entitäten." },
         "subtasks": { "name": "Unteraufgaben (Optional)", "description": "Die aktualisierte Liste der Unteraufgaben." }
+      }
+    },
+    "adjust_points": {
+      "name": "Punkte anpassen",
+      "description": "Gibt einem Kind Bonuspunkte oder zieht Punkte ab (z. B. als Konsequenz) und trägt es mit Begründung ins Protokoll ein. Nur für Admins. Ein Kind fällt nie unter 0 Punkte.",
+      "fields": {
+        "kid_id": { "name": "Kind", "description": "Die Personen-Entität des Kindes (oder Teilnehmer-ID)." },
+        "points": { "name": "Punkte", "description": "Positiv für einen Bonus, negativ für einen Abzug (jeweils 1 bis 50)." },
+        "reason": { "name": "Begründung", "description": "Warum? Wird im Protokoll angezeigt (max. 80 Zeichen)." }
       }
     }
   }
