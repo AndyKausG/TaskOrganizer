@@ -33,6 +33,7 @@
 - **Wizard "Redistribute due dates":** new option `reschedule` for `wizard_apply` (with the in-place update) gives existing wizard tasks fresh due dates like a new plan while keeping history and points.
 - **Progress ring overfill:** above 100 % of the monthly goal the ring draws further laps in darker shades of the kid's colour with a shadow at the round end (like activity rings), the percentage is shown under the points, the trophy stays.
 - **Missed duties expire:** with `expire_missed` (default on) kid duties that are still due from a previous day move on at midnight (daily at once, weekly after 2 days) without points or deduction; each leaves a history entry of type `missed`, visible only in the parents and protocol cards.
+- **Parents role:** non-admin Home Assistant users can be parents (`parents`) or parents who may also manage (`parents_manage`), configured by an administrator in the settings card (Kids > Parents, admin-only command `set_parents`). Parents may approve, reject, give or deduct points, undo and create spontaneous bonuses; managers additionally kid profiles, wizard and bonus triggers. `get_data` returns `my_role` and `ha_users`; parents card, protocol undo and settings card follow the role. See "Parents role" in the README.
 
 ### 🔧 Changes
 - The wizard option "Replace earlier wizard tasks" now updates tasks in place instead of deleting and recreating them.

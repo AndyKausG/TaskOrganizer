@@ -236,7 +236,7 @@ What is created:
 
 Every generated task carries `generated_by: "wizard"` and a `wizard_key` (`<catalog key>:<kid id>`, or `<catalog key>:open`). With *Update earlier wizard tasks* (`replace_existing`) a re-run does **not** reset the day: a task with an existing `wizard_key` is updated in place (name, points, icon, subtasks definition, category, minimum age, time window, interval) and keeps its due date, pause, reservation and subtask progress; only new keys are created and wizard tasks that are no longer selected are removed. If the members or the length of a rotation changed, its turns are staggered again starting tomorrow (or the next household day for weekly rotations), never today. Your own tasks, the points and the history are never touched. With the additional option *Redistribute due dates* (`reschedule`, default off, only together with the in-place update) existing wizard tasks get fresh due dates exactly like in a new plan (household day for weekly tasks, rotation stagger, daily tasks today if their time window is still ahead, otherwise tomorrow) while points, history and progress are kept - useful for tasks that were created before the household day or the spreading rule existed. Without the option, tasks that already exist (same `wizard_key`) are skipped (to add a kid to an existing rotation, run the wizard again with *Update earlier wizard tasks* so that the intervals are rebalanced). The monthly goals of the start month are prorated: the unprorated goals are stored in `point_goals_full` with the month in `point_goals_prorated_month` and replace the prorated goals automatically in the next month (at the monthly reset and on startup); a goal entered manually in the settings card also becomes the full goal. Templates with the same name are not duplicated. The household features and your last choices are stored in the settings, so running the wizard again pre-fills everything.
 
-| Command (all **admin only**) | Description |
+| Command (**admin or manager**) | Description |
 | :--- | :--- |
 | `task_organizer/wizard_catalog` | Task catalog (German and English names) and household features. |
 | `task_organizer/wizard_preview` | `kids` (`id`, `birth_year`, ...), `features`, `start_date`, `phase` (`start` / `normal`), optional `household_day` (0 = Monday ... 6, default 5), `excluded` wizard keys and `points` overrides. Returns the proposal: tasks per kid, rotation plan, load warnings, goals and family goal. Saves nothing. |
@@ -251,7 +251,7 @@ Tasks and templates have the optional fields `available_from` and `available_unt
 * The normal task card (parents) is never restricted: you can complete a task at any time.
 
 ### Undo (parents)
-The admin-only websocket command `task_organizer/undo_completion` (`history_id`) takes back a task completion: all history entries of that completion (they share a `completion_id`; older entries without one are undone individually) are removed, their points are subtracted (never below 0), the task gets its previous due date back (`previous_due_date` is stored in the history entry; without it the task is due now), subtasks are reset and a one-time task that was deleted by the completion is recreated from a snapshot stored in the history entry. There is no deduction. A second undo answers `{"success": false, "error": "not_found"}`. The parents card shows "↩️ Rückgängig" (with a confirmation) on task entries in the per-kid history, the protocol card has an undo button for administrators.
+The websocket command `task_organizer/undo_completion` (admin, manager or parent) (`history_id`) takes back a task completion: all history entries of that completion (they share a `completion_id`; older entries without one are undone individually) are removed, their points are subtracted (never below 0), the task gets its previous due date back (`previous_due_date` is stored in the history entry; without it the task is due now), subtasks are reset and a one-time task that was deleted by the completion is recreated from a snapshot stored in the history entry. There is no deduction. A second undo answers `{"success": false, "error": "not_found"}`. The parents card shows "↩️ Rückgängig" (with a confirmation) on task entries in the per-kid history, the protocol card has an undo button for administrators.
 
 ### Spontaneous bonus
 The **➕ Spontan-Bonus** button of the parents card opens a sheet to create a one-time bonus task in a few taps: name (required, up to 60 characters), icon chip (🛒 🍞 🧺 🧹 📦 🐕 ⭐), estimated minutes (5 / 10 / 15 / 30, suggesting 2 / 3 / 4 / 6 points, editable 1-10), target ("All kids" or one kid) with a minimum age, and an expiry ("No expiry" or "Today until HH:MM"). The admin-only websocket command `task_organizer/add_adhoc_bonus` (`name`, `points`, optional `icon`, `minutes`, `kid_id`, `min_age`, `expires_at` as ISO date/time) creates a task with `interval: 0`, category `bonus`, `adhoc: true` and `expires_at`, and fires `task_organizer_task_created` and [`task_organizer_bonus_opened`](#task_organizer_bonus_opened), so existing tablet announcements work. Errors: `unauthorized`, `invalid_name`, `invalid_icon`, `unknown_person`, `invalid_expiry`. A kid-targeted task uses the normal assignee rule. Expired ad-hoc tasks are removed automatically (checked every minute) without points or history; the kids card hides them as soon as they expire and shows "bis 18:00" on the bonus board.
@@ -275,7 +275,7 @@ A bonus task can open itself when a Home Assistant entity changes to a state, wi
 * **Reservations:** a claimed bonus task is reserved for `claim_minutes` (default 10) minutes; other kids see who took it. Completing the task clears the reservation.
 
 ### Websocket API (used by the kids card)
-Additional admin-only commands: `approve` (`pending_id`), `reject` (`pending_id`, `mode`: `not_done` | `cheated`, optional `reason`) and `adjust_points`; `kid_complete_task` may answer `{success, pending: true, points}`.
+Additional commands for admins, managers and parents: `approve` (`pending_id`), `reject` (`pending_id`, `mode`: `not_done` | `cheated`, optional `reason`) and `adjust_points`; `kid_complete_task` may answer `{success, pending: true, points}`.
 All of these return `{"success": true, ...}` or `{"success": false, "error": <code>}`; the codes are `wrong_pin`, `locked`, `not_eligible`, `too_young`, `claimed`, `basis_open`, `unknown_kid`, `not_found`, `not_yet` and `too_late` (see [Time windows](#time-windows)).
 
 | Command | Description |
@@ -283,8 +283,8 @@ All of these return `{"success": true, ...}` or `{"success": false, "error": <co
 | `task_organizer/kid_verify_pin` | `kid_id`, `pin`. Checks the PIN (a kid without PIN is always accepted). |
 | `task_organizer/kid_claim_task` | `task_id`, `kid_id`, `pin`. Reserves a task for the kid. |
 | `task_organizer/kid_complete_task` | `task_id`, `kid_id`, `pin`. Checks the PIN and the eligibility (task due and not paused, kid assigned, old enough, not claimed by another kid, duties first for bonus tasks with `requires_routine`) and awards the points. |
-| `task_organizer/set_kid_profile` | **Admin only.** `participant_id`, `avatar`, `color` (hex), `birth_year`, optional `pin` (4 digits, empty = keep) and `clear_pin`. |
-| `task_organizer/delete_kid_profile` | **Admin only.** `participant_id`. |
+| `task_organizer/set_kid_profile` | **Admin or manager.** `participant_id`, `avatar`, `color` (hex), `birth_year`, optional `pin` (4 digits, empty = keep) and `clear_pin`. |
+| `task_organizer/delete_kid_profile` | **Admin or manager.** `participant_id`. |
 
 ### Birthday
 Give a kid a **birthday** (settings card -> Kids, or wizard step 1). The age is then exact (it changes on the birthday, not on January 1st; a Feb 29 birthday is celebrated on Feb 28 in common years); without a birthday the birth year is used as before. On the birthday (checked at startup and daily at 00:02, once per birthday):
@@ -355,19 +355,32 @@ action:
 ```
 
 ### Bonus points and deductions
-The admin-only websocket command `task_organizer/adjust_points` (`kid_id`, `points` +-1..50, `reason` required, max 80 characters) and the service `task_organizer.adjust_points` add a history entry of type `bonus` or `penalty` with the reason. A kid never drops below 0 points (the applied amount is recorded). History entries have an optional `type` (`task` for old entries, `bonus`, `penalty`, `birthday`) and `reason`; the protocol card shows them with icons, deleting a deduction refunds it. The type `missed` (0 points) marks an [expired duty](#missed-duties).
+The websocket command `task_organizer/adjust_points` (admin, manager or parent) (`kid_id`, `points` +-1..50, `reason` required, max 80 characters) and the service `task_organizer.adjust_points` add a history entry of type `bonus` or `penalty` with the reason. A kid never drops below 0 points (the applied amount is recorded). History entries have an optional `type` (`task` for old entries, `bonus`, `penalty`, `birthday`) and `reason`; the protocol card shows them with icons, deleting a deduction refunds it. The type `missed` (0 points) marks an [expired duty](#missed-duties).
 
 **Privacy:** deductions and strict mode are never shown on the kids card home screen, only in the kid's own view after the PIN (a neutral line like "-4 points: Cheated: Set the table" and a small note while strict mode is active).
 
 **Family goal:** `family_points` (in `get_data`, used by the family rocket) is computed from this period's history entries of type `task`; birthday bonus, bonus points and deductions do not count.
 
 ### Parents card (`task-organizer-parents`)
-A phone-friendly dashboard for administrators: open approvals with the buttons Approve / Not done / Cheated (with a confirmation that shows the deduction), quick +1 +5 -1 -5 per kid with a reason sheet, the **➕ Spontan-Bonus** button ([spontaneous bonus](#spontaneous-bonus)), strict mode indicator and the latest history entries per kid, where task entries have a **↩️ Rückgängig** button ([undo](#undo-parents)). Non-admins only see a short note.
+A phone-friendly dashboard for parents (administrators and users with the parents role, see "Parents role"): open approvals with the buttons Approve / Not done / Cheated (with a confirmation that shows the deduction), quick +1 +5 -1 -5 per kid with a reason sheet, the **➕ Spontan-Bonus** button ([spontaneous bonus](#spontaneous-bonus)), strict mode indicator and the latest history entries per kid, where task entries have a **↩️ Rückgängig** button ([undo](#undo-parents)). Non-admins only see a short note.
 
 ```yaml
 type: custom:task-organizer-parents
 title: Parents
 ```
+
+### Parents role
+
+By default every parent action needs a Home Assistant administrator. With the **parents role** a normal (non-admin) Home Assistant user can be a parent without full admin rights. An administrator configures it in the settings card under **Kids > Parents**: tick **Parent** and, if wanted, **May manage** per user (listed are the persons that have a Home Assistant user; "may manage" implies parent). The lists are stored as the settings `parents` and `parents_manage` and can only be changed by an administrator with the admin-only websocket command `task_organizer/set_parents` (`parents`, `parents_manage`; unknown, inactive and system users are rejected with `invalid_user`). `update_settings` and imports ignore both keys. **Do not enter the tablet user** of the kids card: it would be allowed to approve its own tasks.
+
+| Role | Allowed |
+| --- | --- |
+| Administrator (HA admin) | everything, including `set_parents` |
+| Manager (`parents_manage`) | everything of a parent plus `set_kid_profile` (incl. PINs), `delete_kid_profile`, `wizard_catalog` / `wizard_preview` / `wizard_apply`, `set_bonus_triggers`; sees the Kids section and the wizard in the settings card |
+| Parent (`parents`) | `approve`, `reject`, `adjust_points`, `undo_completion`, `add_adhoc_bonus`; parents card and undo in the protocol card; sees the settings read-only |
+| Anyone else | none of the above (error `unauthorized`) |
+
+`get_data` returns `my_role` (`admin`, `manager`, `parent` or `null`) for the calling user and `ha_users` (persons with a user: `user_id`, `name`) for the settings card. Services such as `task_organizer.adjust_points` stay Home Assistant admin-level, and actionable push notifications are unchanged.
 
 ### Settings of step 2
 `cheat_penalty_factor` (0-2), `cheat_strict_days` (0-30), `birthday_bonus_points` (0-50), `birthday_duty_free`, `expire_missed` and the per-kid spot-check rate are in the settings card (Kids). `update_settings` cannot overwrite kid profiles, pending approvals, history or points.
