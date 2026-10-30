@@ -243,3 +243,24 @@ async def test_classic_commands_open_without_kids_mode(hass, hass_ws_client, set
     ws = await _ws_for(hass, hass_ws_client, "other", users, None)
     res = await _call(ws, "task_organizer/add_task", name="X", interval=1, complexity=1, icon="mdi:broom")
     assert res["success"], res
+
+
+async def test_tablet_user_ticks_steps_via_kid_command(hass, hass_ws_client, hass_access_token, setup, users):
+    """Regression: the kids card must not use edit_task (role-gated) to tick steps."""
+    admin = await hass_ws_client(hass, hass_access_token)
+    res = await _call(admin, "task_organizer/set_kid_profile", participant_id=ANNA, avatar="🦊", color="#ff8800", pin="1234")
+    assert res["success"], res
+    res = await _call(admin, "task_organizer/add_task", name="Mission", interval=1, complexity=2, icon="mdi:broom",
+                      assignees=[ANNA], subtasks=[{"title": "a", "done": False}, {"title": "b", "done": False}])
+    tid = res["result"]["task_id"]
+    await hass.async_block_till_done()
+    tablet = await _ws_for(hass, hass_ws_client, "other", users, hass_access_token)
+    res = await _call(tablet, "task_organizer/edit_task", task_id=tid, subtasks=[{"title": "a", "done": True}])
+    assert res["error"]["code"] == "unauthorized"
+    res = await _call(tablet, "task_organizer/kid_toggle_step", task_id=tid, kid_id=ANNA, pin="1234", index=1, done=True)
+    assert res["result"] == {"success": True}
+    assert hass.data[DOMAIN]["data"]["tasks"][tid]["subtasks"][1]["done"] is True
+    res = await _call(tablet, "task_organizer/kid_toggle_step", task_id=tid, kid_id=ANNA, pin="0000", index=0, done=True)
+    assert res["result"]["error"] == "wrong_pin"
+    res = await _call(tablet, "task_organizer/kid_toggle_step", task_id=tid, kid_id=ANNA, pin="1234", index=9, done=True)
+    assert res["result"]["error"] == "not_found"
