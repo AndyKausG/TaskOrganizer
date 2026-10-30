@@ -35,6 +35,8 @@ PIN_LOCK_SECONDS = 60
 DEFAULT_CHEAT_PENALTY_FACTOR = 1.0
 DEFAULT_CHEAT_STRICT_DAYS = 7
 DEFAULT_BIRTHDAY_BONUS_POINTS = 10
+DEFAULT_TEAM_BONUS = 1
+MAX_HELPERS = 10
 MAX_ADJUST_POINTS = 50
 MAX_REASON_LENGTH = 80
 
@@ -65,6 +67,7 @@ ERR_NOT_FOUND = "not_found"
 ERR_NOT_YET = "not_yet"
 ERR_TOO_LATE = "too_late"
 ERR_STEPS_OPEN = "steps_open"
+ERR_DUPLICATE_HELPER = "duplicate_helper"
 
 # Window states of a task (see window_state)
 WINDOW_OPEN = "open"
@@ -320,6 +323,11 @@ def cheat_strict_days(settings: dict | None) -> int:
 
 def birthday_bonus_points(settings: dict | None) -> int:
     return int(_number_setting(settings, "birthday_bonus_points", DEFAULT_BIRTHDAY_BONUS_POINTS, 0, 50))
+
+
+def team_bonus_points(settings: dict | None) -> int:
+    """Extra points per participant for doing a task together (0-3, default 1)."""
+    return int(_number_setting(settings, "team_bonus", DEFAULT_TEAM_BONUS, 0, 3))
 
 
 def birthday_duty_free(settings: dict | None) -> bool:

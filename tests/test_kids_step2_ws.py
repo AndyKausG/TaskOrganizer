@@ -599,3 +599,134 @@ async def test_old_storage_without_new_keys(hass):
     assert data["pending"] == {} and data["tasks"]["t1"]["requires_approval"] is False
     from homeassistant.components.websocket_api import ActiveConnection  # noqa: F401
     assert data["points"][ANNA] == 7.0
+
+
+# ---------------------------------------------------------------------------
+# doing a task together (helpers)
+# ---------------------------------------------------------------------------
+
+CLARA = "person.clara"
+
+
+async def _team(hass, ws, **task_kw):
+    """Anna (PIN 1234), Ben (PIN 5555, has a user) and Clara (6 years, no PIN)."""
+    hass.states.async_set(CLARA, "home", {"friendly_name": "Clara"})
+    await _make_kid(ws)
+    await _make_kid(ws, BEN_ID, pin="5555")
+    await _make_kid(ws, CLARA, pin="", birth_year=2020)
+    return await _add_task(ws, complexity=5, **task_kw)
+
+
+async def _together(ws, task_id, helpers, pin="1234"):
+    res = await _call(ws, "task_organizer/kid_complete_task", task_id=task_id, kid_id=ANNA, pin=pin, helpers=helpers)
+    return res["result"]
+
+
+async def test_together_splits_points_and_adds_team_bonus(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws)
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}, {"kid_id": CLARA}])
+    assert res == {"success": True, "points": 1.7, "task_name": "Task", "team_bonus": 1}
+    points = _data(hass)["points"]
+    assert points[ANNA] == points[BEN_ID] == points[CLARA] == 2.7          # 5 / 3 + 1 team bonus
+    history = _data(hass)["history"]
+    assert sorted(h["type"] for h in history) == ["bonus"] * 3 + ["task"] * 3
+    bonus = [h for h in history if h["type"] == "bonus"]
+    assert {h["reason"] for h in bonus} == {"Teamwork"} and all(h["points"] == 1 for h in bonus)
+    assert len({h["completion_id"] for h in history}) == 1                 # one completion
+    # undo takes everything back, bonus included
+    task_entry = next(h for h in history if h["type"] == "task")
+    assert (await _call(ws, "task_organizer/undo_completion", history_id=task_entry["id"]))["result"]["removed"] == 6
+    assert all(v == 0 for v in _data(hass)["points"].values()) and _data(hass)["history"] == []
+
+
+async def test_together_team_bonus_setting(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws)
+    assert (await _call(ws, "task_organizer/update_settings", settings={"team_bonus": 0}))["success"]
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}])
+    assert res["points"] == 2.5 and res["team_bonus"] == 0
+    assert [h["type"] for h in _data(hass)["history"]] == ["task", "task"]
+    # a solo completion never gets a team bonus
+    assert (await _call(ws, "task_organizer/update_settings", settings={"team_bonus": 3}))["success"]
+    solo = await _add_task(ws)
+    assert (await _kid_complete(ws, solo))["success"]
+    assert [h["type"] for h in _data(hass)["history"]].count("bonus") == 0
+
+
+async def test_together_wrong_helper_pin_changes_nothing(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws)
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "0000"}])
+    assert res["success"] is False and res["error"] == "wrong_pin"
+    assert res["helper_id"] == BEN_ID and res["attempts_left"] == 4
+    assert _data(hass)["points"].get(ANNA, 0) == 0 and _data(hass)["history"] == []
+    assert task_id in _data(hass)["tasks"] and _data(hass)["tasks"][task_id]["due_date"] <= dt_util.utcnow().isoformat()
+
+
+async def test_together_helper_pins_cannot_be_brute_forced(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws)
+    # a wrong main PIN never reaches the helpers
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}], pin="0000")
+    assert res["error"] == "wrong_pin" and "helper_id" not in res
+    # several guesses for one kid in one request are rejected, one per request count against the kid's lockout
+    many = [{"kid_id": BEN_ID, "pin": f"{i:04d}"} for i in range(1, 4)]
+    assert (await _together(ws, task_id, many))["error"] == "duplicate_helper"
+    for i in range(5):
+        res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": f"{i + 1:04d}"}])
+    assert res["error"] == "locked" and res["helper_id"] == BEN_ID
+    # now even the right PIN is refused, directly and as helper
+    assert (await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}]))["error"] == "locked"
+    assert (await _call(ws, "task_organizer/kid_verify_pin", kid_id=BEN_ID, pin="5555"))["result"]["error"] == "locked"
+    assert _data(hass)["history"] == []
+
+
+async def test_together_rejects_duplicate_unknown_and_too_young_helpers(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws, min_age=8)
+    ben = {"kid_id": BEN_ID, "pin": "5555"}
+    res = await _together(ws, task_id, [ben, ben])
+    assert res["error"] == "duplicate_helper" and res["helper_id"] == BEN_ID
+    res = await _together(ws, task_id, [{"kid_id": ANNA, "pin": "1234"}])          # the main kid itself
+    assert res["error"] == "duplicate_helper"
+    res = await _together(ws, task_id, [ben, {"kid_id": CLARA}])                   # Clara is 6 years old
+    assert res["error"] == "too_young" and res["helper_id"] == CLARA
+    res = await _together(ws, task_id, [{"kid_id": "person.nobody"}])
+    assert res["error"] == "unknown_kid" and res["helper_id"] == "person.nobody"
+    assert _data(hass)["history"] == [] and _data(hass)["points"].get(BEN_ID, 0) == 0
+
+
+async def test_together_open_steps_block_the_main_kid_only(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws, subtasks=[{"title": "Step", "done": False}])
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}])
+    assert res["error"] == "steps_open"
+
+
+async def test_together_with_approval_creates_one_pending_for_all(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws, requires_approval=True, name="Garden")
+    requested = _collect(hass, "task_organizer_approval_requested")
+    res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "5555"}, {"kid_id": CLARA}])
+    assert res["success"] and res["pending"] is True
+    (pending,) = _data(hass)["pending"].values()
+    assert pending["kid_id"] == ANNA and pending["helpers"] == [BEN_ID, CLARA] and pending["team_bonus"] == 1
+    assert _data(hass)["points"].get(ANNA, 0) == 0 and _data(hass)["history"] == []
+    await hass.async_block_till_done()
+    assert requested[0]["helpers"] == [BEN_ID, CLARA]
+    res = await _call(ws, "task_organizer/approve", pending_id=pending["id"])
+    assert res["result"]["success"]
+    points = _data(hass)["points"]
+    assert points[ANNA] == points[BEN_ID] == points[CLARA] == 2.7
+    assert [h["type"] for h in _data(hass)["history"]].count("bonus") == 3
+    # approving again awards nothing more
+    assert (await _call(ws, "task_organizer/approve", pending_id=pending["id"]))["result"]["success"] is False
+    assert _data(hass)["points"][ANNA] == 2.7

@@ -94,6 +94,10 @@ from .kids import (
     DEFAULT_CLAIM_MINUTES,
     ERR_NOT_FOUND,
     ERR_UNKNOWN_KID,
+    ERR_TOO_YOUNG,
+    ERR_DUPLICATE_HELPER,
+    MAX_HELPERS,
+    team_bonus_points,
     ERR_NOT_YET,
     ERR_TOO_LATE,
     MAX_ADJUST_POINTS,
@@ -396,7 +400,7 @@ def _award_task_points(
     total_points: float,
     points_per_user: float | None,
     undo: dict | None = None,
-) -> None:
+) -> str:
     """Add points + history entries of a completed task and fire the events.
 
     Shared by a normal completion and by the approval of a pending one, so
@@ -433,9 +437,12 @@ def _award_task_points(
         "points_per_user": points_per_user,
         "total_points": total_points
     })
+    return completion_id
 
 
-async def _async_complete_task_internal(hass: HomeAssistant, task_id: str, completed_by: list, points_distribution: dict = None):
+async def _async_complete_task_internal(
+    hass: HomeAssistant, task_id: str, completed_by: list, points_distribution: dict = None, team_bonus: int = 0
+):
     """
     Internal helper to process task completion logic, including points, history and recurring logic.
     
@@ -443,6 +450,7 @@ async def _async_complete_task_internal(hass: HomeAssistant, task_id: str, compl
     :param task_id: The unique ID of the task.
     :param completed_by: List of user IDs who completed the task.
     :param points_distribution: Mapping of user ID to percentage for point distribution.
+    :param team_bonus: Extra points per participant (own history entry) when several users did it together.
     """
     data = hass.data[DOMAIN]["data"]
     if task_id not in data["tasks"]:
@@ -464,11 +472,13 @@ async def _async_complete_task_internal(hass: HomeAssistant, task_id: str, compl
     task_name = task.get("name")
     _skip_replaced(hass, data, task)
     undo = _advance_task(data, task_id)
-    _award_task_points(
+    completion_id = _award_task_points(
         hass, data, task_id, task_name, users_with_points, total_points,
         None if points_distribution else _calculate_points_per_user(total_points, len(completed_by)),
         undo,
     )
+    if team_bonus > 0 and len(users_with_points) > 1:
+        _apply_team_bonus(hass, data, list(users_with_points), team_bonus, task_name, completion_id)
 
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
@@ -1151,15 +1161,57 @@ def _kid_task_precheck(hass: HomeAssistant, msg: dict) -> tuple[dict | None, dic
     return None, {"task": task, "settings": settings, "kid_id": kid_id}
 
 
+def _verify_helpers(hass: HomeAssistant, ctx: dict, helpers: list) -> dict | None:
+    """Check the helpers of a task done together; ``None`` when all are fine.
+
+    Structural checks (no duplicates, not the main kid, known kid profile, old
+    enough) come first and cost no PIN attempt. Then every helper PIN is
+    verified with the normal lockout of THAT kid; the first failure stops the
+    check, so a request can never try more PINs than a direct PIN check.
+    """
+    kids = ctx["settings"].get("kids") or {}
+    task = ctx["task"]
+    min_age = normalize_min_age(task.get("min_age", 0))
+    today = dt_util.now().date()
+    seen = {ctx["kid_id"]}
+    for helper in helpers:
+        hid = helper["kid_id"]
+        if hid in seen:
+            return {"success": False, "error": ERR_DUPLICATE_HELPER, "helper_id": hid}
+        seen.add(hid)
+        profile = kids.get(hid)
+        if not isinstance(profile, dict):
+            return {"success": False, "error": ERR_UNKNOWN_KID, "helper_id": hid}
+        age = kid_age(profile, today)
+        if min_age > 0 and age is not None and age < min_age:
+            return {"success": False, "error": ERR_TOO_YOUNG, "helper_id": hid}
+    for helper in helpers:
+        result, _settings, _kids = _verify_kid(hass, helper["kid_id"], helper.get("pin"))
+        if not result["success"]:
+            return {**result, "helper_id": helper["kid_id"]}
+    return None
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): WS_TYPE_KID_COMPLETE_TASK,
     vol.Required("task_id"): str,
     vol.Required("kid_id"): str,
     vol.Optional("pin"): vol.Any(None, str),
+    vol.Optional("helpers"): vol.All([vol.Schema({
+        vol.Required("kid_id"): str,
+        vol.Optional("pin"): vol.Any(None, str),
+    })], vol.Length(max=MAX_HELPERS)),
 })
 @websocket_api.async_response
 async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Complete a task as a kid (PIN + eligibility checked, 100 % of the points)."""
+    """Complete a task as a kid (PIN + eligibility checked, 100 % of the points).
+
+    With ``helpers`` (``[{kid_id, pin}]``) the task is done together: every
+    helper PIN is verified, the points are split equally among all
+    participants and each one gets the ``team_bonus`` setting as an extra
+    ``bonus`` history entry. Steps, time window and eligibility only apply to
+    the main kid.
+    """
     error, ctx = _kid_task_precheck(hass, msg)
     if error:
         connection.send_result(msg["id"], error)
@@ -1169,6 +1221,15 @@ async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.Ac
         connection.send_result(msg["id"], {"success": False, "error": ERR_STEPS_OPEN})
         return
 
+    helpers = msg.get("helpers") or []
+    if helpers:
+        error = _verify_helpers(hass, ctx, helpers)
+        if error:
+            connection.send_result(msg["id"], error)
+            return
+    helper_ids = [h["kid_id"] for h in helpers]
+    bonus = team_bonus_points(ctx["settings"]) if helpers else 0
+
     # No await between the check above and the completion: atomic in the event loop.
     task = ctx["task"]
     kid_id = ctx["kid_id"]
@@ -1177,16 +1238,23 @@ async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.Ac
 
     profile = (ctx["settings"].get("kids") or {}).get(kid_id) or {}
     if needs_approval(task, profile, dt_util.now().date()):
-        await _async_request_approval(hass, msg["task_id"], kid_id, points)
+        await _async_request_approval(hass, msg["task_id"], kid_id, points, helper_ids, bonus)
         connection.send_result(msg["id"], {"success": True, "pending": True, "points": points, "task_name": task_name})
         return
 
-    success = await _async_complete_task_internal(hass, msg["task_id"], [kid_id], {kid_id: 100})
+    if helpers:
+        success = await _async_complete_task_internal(hass, msg["task_id"], [kid_id] + helper_ids, None, bonus)
+        points = _calculate_points_per_user(points, len(helper_ids) + 1)
+    else:
+        success = await _async_complete_task_internal(hass, msg["task_id"], [kid_id], {kid_id: 100})
     if not success:
         connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
         return
 
-    connection.send_result(msg["id"], {"success": True, "points": points, "task_name": task_name})
+    result = {"success": True, "points": points, "task_name": task_name}
+    if helpers:
+        result["team_bonus"] = bonus
+    connection.send_result(msg["id"], result)
 
 
 # ---------------------------------------------------------------------------
@@ -1205,11 +1273,14 @@ def _clean_reason(value) -> str:
     return str(value or "").strip()[:MAX_REASON_LENGTH]
 
 
-async def _async_request_approval(hass: HomeAssistant, task_id: str, kid_id: str, points: float) -> str:
+async def _async_request_approval(
+    hass: HomeAssistant, task_id: str, kid_id: str, points: float, helpers: list | None = None, team_bonus: int = 0
+) -> str:
     """Park a kid's completion until a parent approves it.
 
     The task advances exactly like a completion (so it cannot be completed
-    twice); the points are only awarded on approval.
+    twice); the points are only awarded on approval. With ``helpers`` (a task
+    done together) one pending record covers all participants.
     """
     data = hass.data[DOMAIN]["data"]
     task = data["tasks"][task_id]
@@ -1222,18 +1293,24 @@ async def _async_request_approval(hass: HomeAssistant, task_id: str, kid_id: str
         "points": points,
         "timestamp": dt_util.utcnow().isoformat(),
     }
+    if helpers:
+        record["helpers"] = list(helpers)
+        record["team_bonus"] = team_bonus
     _skip_replaced(hass, data, task)
     undo = _advance_task(data, task_id)
     if undo:
         record["undo"] = undo
     data.setdefault("pending", {})[pending_id] = record
-    hass.bus.async_fire(EVENT_APPROVAL_REQUESTED, {
+    event = {
         "pending_id": pending_id,
         "task_name": record["task_name"],
         "kid_id": kid_id,
         "kid_name": _participant_name(hass, kid_id),
         "points": points,
-    })
+    }
+    if helpers:
+        event["helpers"] = list(helpers)
+    hass.bus.async_fire(EVENT_APPROVAL_REQUESTED, event)
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
     return pending_id
@@ -1247,6 +1324,7 @@ def _apply_adjustment(
     entry_type: str,
     task_name: str,
     reason: str | None = None,
+    completion_id: str | None = None,
 ) -> float:
     """Add a bonus / penalty / birthday entry to the history and the kid's points.
 
@@ -1268,11 +1346,20 @@ def _apply_adjustment(
     }
     if reason:
         entry["reason"] = reason
+    if completion_id:
+        entry["completion_id"] = completion_id     # undone together with the completion
     if applied != points:
         entry["requested_points"] = points
     data["history"].insert(0, entry)
     _fire_leaderboard_event_if_changed(hass, old_points, data["points"])
     return applied
+
+
+def _apply_team_bonus(hass: HomeAssistant, data: dict, participants: list, points: int, task_name: str | None, completion_id: str) -> None:
+    """One ``bonus`` history entry per participant for working as a team. Does not save."""
+    reason = "Teamarbeit" if _lang(hass) == "de" else "Teamwork"
+    for uid in participants:
+        _apply_adjustment(hass, data, uid, points, TYPE_BONUS, f"{reason}: {task_name or ''}", reason, completion_id)
 
 
 def _set_strict_mode(hass: HomeAssistant, kid_id: str, days: int) -> None:
@@ -1295,10 +1382,15 @@ async def _async_approve_pending(hass: HomeAssistant, pending_id: str) -> dict |
     if pending is None:
         return None
     points = float(pending.get("points", 0))
-    _award_task_points(
+    helpers = pending.get("helpers") or []
+    participants = [pending["kid_id"]] + helpers
+    share = _calculate_points_per_user(points, len(participants)) if helpers else None
+    completion_id = _award_task_points(
         hass, data, pending["task_id"], pending.get("task_name"),
-        {pending["kid_id"]: points}, points, None, pending.get("undo"),
+        {uid: share if helpers else points for uid in participants}, points, share, pending.get("undo"),
     )
+    if helpers and pending.get("team_bonus", 0) > 0:
+        _apply_team_bonus(hass, data, participants, pending["team_bonus"], pending.get("task_name"), completion_id)
     hass.bus.async_fire(EVENT_APPROVAL_RESOLVED, {
         "pending_id": pending_id, "result": "approved", "task_name": pending.get("task_name"),
         "kid_id": pending["kid_id"], "points": points,
@@ -1560,8 +1652,8 @@ async def ws_parent_task_action(hass: HomeAssistant, connection: websocket_api.A
         except ValueError:
             connection.send_error(msg["id"], "invalid_date", "until must be YYYY-MM-DD")
             return
-        if until <= today:
-            connection.send_error(msg["id"], "invalid_date", "until must be in the future")
+        if not today < until <= today + timedelta(days=366):
+            connection.send_error(msg["id"], "invalid_date", "until must be in the future (at most one year)")
             return
 
     if msg["action"] == "postpone" or task.get("interval", 7) == 0:
