@@ -119,7 +119,7 @@ const wzBdayMonths = {
   de: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
   en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 };
-function wzBdayHtml(value, attrs, lang, disabled) {
+function wzBdayHtml(value, attrs, lang, disabled, future = false) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
   const [y, mo, d] = m ? [+m[1], +m[2], +m[3]] : [0, 0, 0];
   const now = new Date().getFullYear();
@@ -131,7 +131,8 @@ function wzBdayHtml(value, attrs, lang, disabled) {
   let mons = opt('', lang === 'de' ? 'Monat' : 'Month', !mo);
   months.forEach((n, i) => { mons += opt(i + 1, n, i + 1 === mo); });
   let years = opt('', lang === 'de' ? 'Jahr' : 'Year', !y);
-  for (let i = now; i >= now - 25; i--) years += opt(i, i, i === y);
+  if (future) { for (let i = now; i <= now + 1; i++) years += opt(i, i, i === y); }
+  else { for (let i = now; i >= now - 25; i--) years += opt(i, i, i === y); }
   if (y && y < now - 25) years += opt(y, y, true);
   return `<span class="bday-sel" style="display:flex;gap:6px">
       <select data-part="d" ${dis} style="flex:0.8;min-width:0;height:38px;padding:0 6px;font-size:15px;border:1px solid var(--divider-color,#ccc);border-radius:6px;background:var(--primary-background-color,#fff);color:var(--primary-text-color,#212121)">${days}</select>
@@ -158,6 +159,7 @@ function wzBdayBind(root) {
       const hidden = box.querySelector('input[type="hidden"]');
       hidden.value = iso;
       hidden.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      hidden.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
     });
   });
 }
@@ -902,8 +904,8 @@ class TaskOrganizerWizard extends HTMLElement {
     return `<p class="muted">${wzEsc(this._t('home_intro'))}</p>
       <div class="tiles">${tiles}</div>
       ${triggers ? `<h3>⚡ ${wzEsc(this._t('auto_title'))}</h3><p class="muted">${wzEsc(this._t('auto_open_hint'))}</p><div class="cols">${triggers}</div>` : ''}
-      <div><label class="f" style="max-width:240px">${wzEsc(this._t('start_date'))}
-        <input type="date" data-act="start-date" value="${wzEsc(s.startDate)}"></label>
+      <div><label class="f" style="max-width:320px">${wzEsc(this._t('start_date'))}
+        ${wzBdayHtml(wzEsc(s.startDate), 'data-act="start-date"', this._lang, false, true)}</label>
         <p class="muted" style="margin-top:6px">${wzEsc(this._t('start_hint'))}</p></div>
       <div><label class="f" style="max-width:240px">${wzEsc(this._t('household_day'))}
         <select data-act="household-day">${[0, 1, 2, 3, 4, 5, 6].map(d => `<option value="${d}" ${s.householdDay === d ? 'selected' : ''}>${wzEsc(this._weekday(d))}</option>`).join('')}</select></label>
