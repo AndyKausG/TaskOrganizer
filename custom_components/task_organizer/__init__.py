@@ -258,6 +258,26 @@ def _check_role(hass: HomeAssistant, connection, msg: dict, allowed: tuple) -> b
     return False
 
 
+def _kids_mode_active(hass: HomeAssistant) -> bool:
+    """True once at least one kid profile exists (kids mode is in use)."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    options = entries[0].options if entries else {}
+    return bool(options.get("kids"))
+
+
+def _guard_kids_mode(hass: HomeAssistant, connection, msg: dict, allowed: tuple) -> bool:
+    """Role check for the classic commands, enforced only while kids mode is in use.
+
+    Without kids profiles TaskOrganizer keeps its original behaviour (every
+    Home Assistant user may manage tasks, settings and history). With kids
+    profiles the shared tablet user must not be able to change data outside
+    the PIN-protected kid commands.
+    """
+    if not _kids_mode_active(hass):
+        return True
+    return _check_role(hass, connection, msg, allowed)
+
+
 def _parent_candidates(hass: HomeAssistant, options: dict) -> list[dict]:
     """Home Assistant users that can be made parents: ``[{user_id, name}]``.
 
@@ -460,6 +480,8 @@ async def ws_complete_task(hass: HomeAssistant, connection: websocket_api.Active
     """
     Mark a specific task as completed via websocket.
     """
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     task_id = msg["task_id"]
     completed_by = msg.get("completed_by")
     
@@ -504,6 +526,8 @@ async def ws_add_task(hass: HomeAssistant, connection: websocket_api.ActiveConne
     :param connection: The active websocket connection.
     :param msg: The incoming message payload with task details.
     """
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     task_id = str(uuid.uuid4())
     custom_due_date_str = msg.get("custom_due_date")
@@ -570,6 +594,8 @@ async def ws_edit_task(hass: HomeAssistant, connection: websocket_api.ActiveConn
     :param connection: The active websocket connection.
     :param msg: The incoming message payload with updated task details.
     """
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     task_id = msg["task_id"]
     
@@ -623,14 +649,18 @@ async def ws_delete_task(hass: HomeAssistant, connection: websocket_api.ActiveCo
     :param connection: The active websocket connection.
     :param msg: The incoming message payload with task_id.
     """
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     task_id = msg["task_id"]
     
-    if task_id in data["tasks"]:
-        del data["tasks"][task_id]
-        await hass.data[DOMAIN]["store"].async_save(data)
-        hass.bus.async_fire(EVENT_TASK_UPDATED)
-        connection.send_result(msg["id"], {"success": True})
+    if task_id not in data["tasks"]:
+        connection.send_result(msg["id"], {"success": False, "error": "not_found"})
+        return
+    del data["tasks"][task_id]
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    connection.send_result(msg["id"], {"success": True})
 
 
 @websocket_api.websocket_command({
@@ -645,6 +675,8 @@ async def ws_factory_reset(hass: HomeAssistant, connection: websocket_api.Active
     :param connection: The active websocket connection.
     :param msg: The incoming message payload.
     """
+    if not _guard_kids_mode(hass, connection, msg, (ROLE_ADMIN,)):
+        return
     await hass.services.async_call(DOMAIN, SERVICE_FACTORY_RESET)
     connection.send_result(msg["id"], {"success": True})
 
@@ -665,6 +697,8 @@ _PROTECTED_SETTING_KEYS = (
 @websocket_api.async_response
 async def ws_update_settings(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
     """Saves the settings from the card directly into the Home Assistant OptionsFlow."""
+    if not _guard_kids_mode(hass, connection, msg, _MANAGE_ROLES):
+        return
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     
     # Update the Entry-Options with the new settings from the card
@@ -692,6 +726,8 @@ async def ws_update_settings(hass: HomeAssistant, connection: websocket_api.Acti
 })
 @websocket_api.async_response
 async def ws_delete_history_item(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     entry_id = msg["entry_id"]
     
@@ -724,6 +760,8 @@ async def ws_delete_history_item(hass: HomeAssistant, connection: websocket_api.
 })
 @websocket_api.async_response
 async def ws_edit_history_item(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     entry_id = msg["entry_id"]
     new_points = msg["points"]
@@ -769,6 +807,8 @@ async def ws_edit_history_item(hass: HomeAssistant, connection: websocket_api.Ac
 })
 @websocket_api.async_response
 async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    if not _guard_kids_mode(hass, connection, msg, (ROLE_ADMIN,)):
+        return
     data = hass.data[DOMAIN]["data"]
     
     if "settings" in msg:
@@ -850,6 +890,8 @@ async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveC
 @websocket_api.async_response
 async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
     """Create a new template via websocket."""
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     template_id = str(uuid.uuid4())
     
@@ -897,6 +939,8 @@ async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveC
 @websocket_api.async_response
 async def ws_edit_template(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
     """Edit an existing template via websocket."""
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     template_id = msg["template_id"]
     
@@ -934,6 +978,8 @@ async def ws_edit_template(hass: HomeAssistant, connection: websocket_api.Active
 @websocket_api.async_response
 async def ws_delete_template(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
     """Delete a template via websocket."""
+    if not _guard_kids_mode(hass, connection, msg, _DAILY_ROLES):
+        return
     data = hass.data[DOMAIN]["data"]
     template_id = msg["template_id"]
     

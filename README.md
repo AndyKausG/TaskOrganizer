@@ -382,6 +382,16 @@ By default every parent action needs a Home Assistant administrator. With the **
 
 `get_data` returns `my_role` (`admin`, `manager`, `parent` or `null`) for the calling user and `ha_users` (persons with a user: `user_id`, `name`) for the settings card. Services such as `task_organizer.adjust_points` stay Home Assistant admin-level, and actionable push notifications are unchanged.
 
+**Classic commands while kids mode is in use.** As soon as at least one kid profile exists, the classic websocket commands are role-gated too, so the shared tablet user can only use the PIN-protected kid commands:
+
+| Command | Allowed for |
+| :--- | :--- |
+| `complete_task`, `add_task`, `edit_task`, `delete_task`, `add_template`, `edit_template`, `delete_template`, `delete_history_item`, `edit_history_item` | admin, manager, parent |
+| `update_settings` | admin, manager |
+| `import_tasks`, `factory_reset` | admin |
+
+Without kid profiles nothing changes: every Home Assistant user may manage tasks, templates, settings and history as before. Note that the button entities (`button.task_organizer_reset_month`, `button.task_organizer_factory_reset`) and the services are not covered by these checks; hide or disable the factory reset button if non-admin users can reach entity controls.
+
 ### Settings of step 2
 `cheat_penalty_factor` (0-2), `cheat_strict_days` (0-30), `birthday_bonus_points` (0-50), `birthday_duty_free`, `expire_missed` and the per-kid spot-check rate are in the settings card (Kids). `update_settings` cannot overwrite kid profiles, pending approvals, history or points.
 

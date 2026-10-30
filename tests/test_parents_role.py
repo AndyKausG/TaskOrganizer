@@ -198,3 +198,46 @@ async def test_parent_can_approve_and_undo(hass, hass_ws_client, setup, users):
     assert res["success"] and res["result"]["total"] == 5
     res = await _call(ws, "task_organizer/add_adhoc_bonus", name="Carry bags", icon="mdi:cart", points=2)
     assert res["success"]
+
+
+# ---------------------------------------------------------------------------
+# Classic commands are role-gated once kids mode is in use
+# ---------------------------------------------------------------------------
+
+CLASSIC = {
+    "complete_task": ({"task_id": "nope", "completed_by": []}, DAILY),
+    "add_task": ({"name": "X", "interval": 1, "complexity": 1, "icon": "mdi:broom"}, DAILY),
+    "edit_task": ({"task_id": "nope"}, DAILY),
+    "delete_task": ({"task_id": "nope"}, DAILY),
+    "add_template": ({"name": "X", "complexity": 1, "icon": "mdi:broom"}, DAILY),
+    "edit_template": ({"template_id": "nope"}, DAILY),
+    "delete_template": ({"template_id": "nope"}, DAILY),
+    "delete_history_item": ({"entry_id": "nope"}, DAILY),
+    "edit_history_item": ({"entry_id": "nope", "points": 1, "user_id": ANNA}, DAILY),
+    "update_settings": ({"settings": {"overdue_days": 4}}, MANAGE),
+    "import_tasks": ({"templates": {}}, ("admin",)),
+    "factory_reset": ({}, ("admin",)),
+}
+
+
+@pytest.mark.parametrize("who", ["admin", "manager", "parent", "other"])
+@pytest.mark.parametrize("command", sorted(CLASSIC))
+async def test_classic_commands_gated_in_kids_mode(hass, hass_ws_client, hass_access_token, setup, users, who, command):
+    admin_ws = await hass_ws_client(hass, hass_access_token)
+    res = await _call(admin_ws, "task_organizer/set_kid_profile", participant_id=ANNA, avatar="🦊", color="#ff8800")
+    assert res["success"], res
+    await hass.async_block_till_done()
+    payload, allowed = CLASSIC[command]
+    ws = await _ws_for(hass, hass_ws_client, who, users, hass_access_token)
+    res = await _call(ws, f"task_organizer/{command}", **payload)
+    if who in allowed:
+        assert not (res.get("error") or {}).get("code") == "unauthorized", res
+    else:
+        assert res["success"] is False and res["error"]["code"] == "unauthorized", res
+
+
+async def test_classic_commands_open_without_kids_mode(hass, hass_ws_client, setup, users):
+    """Without kid profiles the original behaviour stays: any user may manage tasks."""
+    ws = await _ws_for(hass, hass_ws_client, "other", users, None)
+    res = await _call(ws, "task_organizer/add_task", name="X", interval=1, complexity=1, icon="mdi:broom")
+    assert res["success"], res
