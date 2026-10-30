@@ -79,7 +79,9 @@ const I18N_KIDS = {
     shop_ready_hint: "Ready to redeem!", shop_done: "Great! Ask mom or dad for your reward.",
     goal_left: "{n} ⭐ to go for {emoji}", goal_ready: "{emoji} ready!",
     err_not_enough_points: "You do not have enough stars for this yet.", err_unknown_reward: "This reward does not exist any more.",
-    err_reward_inactive: "This reward is not available right now."
+    err_reward_inactive: "This reward is not available right now.",
+    mine_no_person: "Your Home Assistant user is not linked to a person yet. Ask an admin to link it in Settings > People.",
+    mode_mine_lbl: "My tasks (own device, no PIN)"
   },
   de: {
     title: "Familien-Aufgaben", loading: "Lade...",
@@ -141,7 +143,9 @@ const I18N_KIDS = {
     shop_ready_hint: "Bereit zum Einlösen!", shop_done: "Super! Frag Mama oder Papa nach deiner Belohnung.",
     goal_left: "noch {n} ⭐ bis {emoji}", goal_ready: "{emoji} bereit!",
     err_not_enough_points: "Dafür reichen deine Sterne noch nicht.", err_unknown_reward: "Diese Belohnung gibt es nicht mehr.",
-    err_reward_inactive: "Diese Belohnung ist gerade nicht verfügbar."
+    err_reward_inactive: "Diese Belohnung ist gerade nicht verfügbar.",
+    mine_no_person: "Dein Benutzer ist noch keiner Person zugeordnet. Ein Administrator kann das unter Einstellungen > Personen einrichten.",
+    mode_mine_lbl: "Meine Aufgaben (eigenes Gerät, ohne PIN)"
   }
 };
 
@@ -303,7 +307,8 @@ class TaskOrganizerKids extends HTMLElement {
       sound: config.sound !== false,
       show_family_goal: config.show_family_goal !== false,
       show_bonus_board: config.show_bonus_board !== false,
-      return_home_after_done: config.return_home_after_done !== false
+      return_home_after_done: config.return_home_after_done !== false,
+      mode: config.mode === 'mine' ? 'mine' : 'family'
     };
     if (this._hass) this._render();
   }
@@ -642,6 +647,42 @@ class TaskOrganizerKids extends HTMLElement {
   }
 
   // ---------------------------------------------------------------------------
+  // "My tasks" mode (own device): the viewer is the person linked to the HA user
+  // ---------------------------------------------------------------------------
+
+  _isMine() { return this._config.mode === 'mine'; }
+
+  /** The kid (or, for an adult without kid profile, a minimal view model) of the viewer; null if no person is linked. */
+  _mineKid() {
+    const uid = this._hass && this._hass.user && this._hass.user.id;
+    if (!uid) return null;
+    const kid = this._kids().find(k => k.id === uid);
+    if (kid) return kid;
+    const person = this._persons()[uid];
+    if (!person) return null;
+    const adult = { id: uid, name: person.name, avatar: '🙂', color: '#4CAF50', adult: true, points: 0, goal: 0, wallet: 0,
+      pct: 0, pctRaw: 0, age: null, isBirthday: false, birth_year: null, birthday: null, strict_until: null,
+      has_pin: false, goal_reward: null, pendingCount: 0 };
+    adult.duties = this._duties(adult);
+    return adult;
+  }
+
+  /** The kid of the open session (mine mode: the viewer). */
+  _sessionKid() {
+    if (!this._session) return null;
+    if (this._session.mine) return this._mineKid();
+    return this._kids().find(k => k.id === this._session.kidId) || null;
+  }
+
+  /** Websocket payload of a kid command: PIN-checked `kid_*` on the shared tablet, `my_*` (no kid_id, no PIN) in mine mode. */
+  _kidCmd(cmd, extra) {
+    if (this._session.mine) return { type: `task_organizer/my_${cmd}`, ...extra };
+    const payload = { type: `task_organizer/kid_${cmd}`, kid_id: this._session.kidId, ...extra };
+    if (this._session.pin) payload.pin = this._session.pin;
+    return payload;
+  }
+
+  // ---------------------------------------------------------------------------
   // Reward shop
   // ---------------------------------------------------------------------------
 
@@ -730,8 +771,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._sheet = null;
     this._render();
     try {
-      const payload = { type: 'task_organizer/kid_redeem', kid_id: this._session.kidId, reward_id: sheet.rewardId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('redeem', { reward_id: sheet.rewardId });
       const res = await this._hass.callWS(payload);
       if (res.success) {
         this._busy = false;
@@ -750,11 +790,10 @@ class TaskOrganizerKids extends HTMLElement {
 
   async _toggleGoal(rewardId) {
     if (this._busy || !this._session) return;
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     this._busy = true;
     try {
-      const payload = { type: 'task_organizer/kid_set_goal', kid_id: this._session.kidId, reward_id: kid && kid.goal_reward === rewardId ? null : rewardId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('set_goal', { reward_id: kid && kid.goal_reward === rewardId ? null : rewardId });
       const res = await this._hass.callWS(payload);
       if (!res.success) this._handleActionError(res);
     } catch (err) {
@@ -867,6 +906,13 @@ class TaskOrganizerKids extends HTMLElement {
   }
 
   _goHome() {
+    if (this._isMine()) {            // no home screen on the own device: just close dialogs / the shop
+      this._sheet = null;
+      this._shop = false;
+      this._busy = false;
+      this._render();
+      return;
+    }
     this._closeBirthday();
     this._view = 'home';
     this._pendingKid = null;
@@ -884,7 +930,7 @@ class TaskOrganizerKids extends HTMLElement {
     const clock = this.shadowRoot.getElementById('clock');
     if (clock) clock.textContent = new Date().toLocaleTimeString((this._hass && this._hass.language) || [], { hour: '2-digit', minute: '2-digit' });
 
-    if (this._view !== 'home' && !this._celebrating &&
+    if (!this._isMine() && this._view !== 'home' && !this._celebrating &&
         Date.now() - this._lastActivity > this._config.timeout * 1000) {
       this._goHome();
       return;
@@ -1018,7 +1064,7 @@ class TaskOrganizerKids extends HTMLElement {
     const sheet = this._sheet;
     if (!sheet || this._busy || !this._session) return;
     if (sheet.type === 'redeem') return this._redeemOk();
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     let payload;
     let message;
     if (sheet.type === 'postpone') {
@@ -1085,7 +1131,7 @@ class TaskOrganizerKids extends HTMLElement {
   _renderSheet() {
     const sheet = this._sheet;
     if (!sheet) return '';
-    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    const kid = this._sessionKid();
     const cancel = `<button class="sbtn" data-action="sheet-cancel">${escKids(this.localize('pa_cancel'))}</button>`;
     let body;
     if (sheet.type === 'redeem') {
@@ -1239,7 +1285,7 @@ class TaskOrganizerKids extends HTMLElement {
   _renderTogether() {
     const sheet = this._sheet;
     const task = this.tasks[sheet.taskId];
-    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    const kid = this._sessionKid();
     if (!task || !kid) return '';
     const candidates = this._helperCandidates(task, kid);
     const chips = candidates.map(k => {
@@ -1430,8 +1476,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._busy = true;
     this._render();
     try {
-      const payload = { type: 'task_organizer/kid_claim_task', task_id: taskId, kid_id: this._session.kidId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('claim_task', { task_id: taskId });
       const res = await this._hass.callWS(payload);
       if (res.success) {
         const task = this.tasks[taskId];
@@ -1450,10 +1495,9 @@ class TaskOrganizerKids extends HTMLElement {
     if (this._busy || !this._session) return;
     this._busy = true;
     this._render();
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     try {
-      const payload = { type: 'task_organizer/kid_complete_task', task_id: taskId, kid_id: this._session.kidId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('complete_task', { task_id: taskId });
       const res = await this._hass.callWS(payload);
       if (res.success) {
         this._busy = false;
@@ -1512,7 +1556,7 @@ class TaskOrganizerKids extends HTMLElement {
       setTimeout(() => layer.remove(), 400);
       this._celebrating = false;
       this._lastActivity = Date.now();
-      if (this._config.return_home_after_done && !reward) this._goHome();
+      if (this._config.return_home_after_done && !reward && !this._isMine()) this._goHome();
       else this._render();
     }, 2300);
   }
@@ -1697,6 +1741,16 @@ class TaskOrganizerKids extends HTMLElement {
     let html;
     if (!this._fetched) {
       html = `<div class="root"><div class="empty-state">${escKids(this.localize('loading'))}</div></div>`;
+    } else if (this._isMine()) {
+      const me = this._mineKid();
+      if (!me) {
+        this._session = null;
+        html = `<div class="root"><div class="empty-state">🙋 ${escKids(this.localize('mine_no_person'))}</div></div>`;
+      } else {
+        this._session = { kidId: me.id, pin: null, mine: true };
+        this._view = 'kid';
+        html = this._renderKidView();
+      }
     } else if (this._view === 'kid' && this._session) {
       html = this._renderKidView();
     } else {
@@ -1888,10 +1942,12 @@ class TaskOrganizerKids extends HTMLElement {
   }
 
   _renderKidView() {
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     if (!kid) return this._renderHome();
+    const adult = !!kid.adult;
+    const mine = this._isMine();
     const duties = kid.duties;
-    const bonus = this._bonusFor(kid);
+    const bonus = adult ? [] : this._bonusFor(kid);
     const persons = {};
     this._kids().forEach(k => { persons[k.id] = k; });
 
@@ -1906,21 +1962,21 @@ class TaskOrganizerKids extends HTMLElement {
       : `<div class="empty-state small">😴 ${escKids(this.localize('no_bonus'))}</div>`;
 
     return `
-      <div class="root kidview ${kid.isBirthday ? 'bday' : ''}" style="--kc:${kid.color}">
+      <div class="root kidview ${kid.isBirthday ? 'bday' : ''} ${adult ? 'adult' : ''}" style="--kc:${kid.color}">
         <header class="kv-head">
-          <button class="back" data-action="${this._shop ? 'shop-close' : 'back'}" aria-label="${escKids(this.localize('back'))}"><span class="back-arrow">⬅</span><span class="back-label"> ${escKids(this.localize('back'))}</span></button>
+          ${!mine || this._shop ? `<button class="back" data-action="${this._shop ? 'shop-close' : 'back'}" aria-label="${escKids(this.localize('back'))}"><span class="back-arrow">⬅</span><span class="back-label"> ${escKids(this.localize('back'))}</span></button>` : ''}
           <div class="kv-who">
             <div class="ring-wrap small">
               ${kid.isBirthday ? '<div class="crown" aria-hidden="true">👑</div>' : ''}
-              ${this._ring(kid, 104, 11)}
+              ${adult ? '' : this._ring(kid, 104, 11)}
               <div class="avatar">${escKids(kid.avatar)}</div>
             </div>
             <div>
               <div class="kv-name">${escKids(kid.name)}</div>
-              <div class="kv-pts">${this._pointsLabel(kid)}</div>
+              ${adult ? '' : `<div class="kv-pts">${this._pointsLabel(kid)}</div>`}
             </div>
           </div>
-          ${this._activeRewards().length && !this._shop ? `<button class="shop-btn" data-action="shop-open">🛍️<span class="shop-label"> ${escKids(this.localize('shop'))}</span><span class="shop-bal">⭐ ${fmtKids(kid.wallet)}</span></button>` : ''}
+          ${!adult && this._activeRewards().length && !this._shop ? `<button class="shop-btn" data-action="shop-open">🛍️<span class="shop-label"> ${escKids(this.localize('shop'))}</span><span class="shop-bal">⭐ ${fmtKids(kid.wallet)}</span></button>` : ''}
         </header>
         ${kid.isBirthday && !this._shop ? this._renderParty(kid) : ''}
         ${this._shop ? this._renderShop(kid) : `<div class="kv-body">
@@ -1928,10 +1984,10 @@ class TaskOrganizerKids extends HTMLElement {
             <h2>📋 ${escKids(this.localize('my_tasks'))} <span class="count">${duties.length}</span></h2>
             <div class="col-scroll">${dutyHtml}</div>
           </section>
-          <section class="col col-bonus">
+          ${adult ? '' : `<section class="col col-bonus">
             <h2>🎁 ${escKids(this.localize('bonus'))} <span class="count">${bonus.length}</span></h2>
             <div class="col-scroll">${bonusHtml}</div>
-          </section>
+          </section>`}
         </div>`}
         ${this._helperMode() ? this._renderPin() : (this._sheet && this._sheet.type === 'together' ? this._renderTogether() : this._renderSheet())}
       </div>`;
@@ -2038,7 +2094,7 @@ class TaskOrganizerKids extends HTMLElement {
       // "Fertig!" only once every required step is ticked (optional steps never block)
       const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
       action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
-      if (this._helperCandidates(task, kid).length) {
+      if (!this._isMine() && this._helperCandidates(task, kid).length) {
         action += `<button class="btn btn-together" data-action="together" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>👫 ${escKids(this.localize('together'))}</button>`;
       }
       if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
@@ -2269,6 +2325,7 @@ class TaskOrganizerKids extends HTMLElement {
       .shop-btn { margin-left: auto; min-height: 88px; padding: 0 28px; border-radius: 44px; background: #F9A825; color: #1b1b1b; border: 4px solid #F57F17; font-size: 32px; font-weight: 800; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 0 rgba(0,0,0,0.22); }
       .shop-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.22); }
       .shop-bal { font-size: 26px; padding: 4px 14px; border-radius: 22px; background: rgba(255,255,255,0.6); }
+      .kidview.adult .kv-body { grid-template-columns: minmax(0, 1fr); }
       .shopview .col-shop { grid-column: 1 / -1; }
       .wallet-big { font-size: 28px; font-weight: 700; color: var(--k-sub); margin: -4px 0 12px; }
       .wallet-big b { font-size: 56px; color: var(--k-text); font-weight: 900; vertical-align: middle; margin-left: 8px; }
@@ -2547,6 +2604,9 @@ class TaskOrganizerKidsEditor extends HTMLElement {
           <ha-formfield label="${this.localize('return_home_lbl')}">
             <ha-checkbox configValue="return_home_after_done"></ha-checkbox>
           </ha-formfield>
+          <ha-formfield label="${this.localize('mode_mine_lbl')}">
+            <ha-checkbox configValue="mode_mine"></ha-checkbox>
+          </ha-formfield>
         </div>
       </div>
       <style>
@@ -2565,7 +2625,9 @@ class TaskOrganizerKidsEditor extends HTMLElement {
     this.querySelectorAll('[configValue]').forEach(el => {
       const key = el.getAttribute('configValue');
       const value = this._config[key];
-      if (el.tagName === 'HA-CHECKBOX') {
+      if (key === 'mode_mine') {
+        el.checked = this._config.mode === 'mine';
+      } else if (el.tagName === 'HA-CHECKBOX') {
         el.checked = value !== false;
       } else if (value !== undefined) {
         el.value = value;
@@ -2580,6 +2642,12 @@ class TaskOrganizerKidsEditor extends HTMLElement {
     const configValue = target.configValue || target.getAttribute('configValue');
     let newValue = target.value;
 
+    if (configValue === 'mode_mine') {
+      const mode = target.checked ? 'mine' : 'family';
+      if ((this._config.mode || 'family') === mode) return;
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: { ...this._config, mode } }, bubbles: true, composed: true }));
+      return;
+    }
     if (target.tagName === 'HA-CHECKBOX') {
       newValue = target.checked;
     } else if (configValue === 'timeout') {

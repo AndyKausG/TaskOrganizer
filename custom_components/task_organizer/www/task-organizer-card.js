@@ -43,6 +43,7 @@ const I18N_CARD = {
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
     min_age_lbl: "Minimum age (0 = any)", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
+    reminder_lbl: "Reminder", reminder_time_lbl: "Remind at", reminder_target_lbl: "Notify via", reminder_event_only: "Event only",
     help_link: "Configuration Guide (README)"
   },
   de: { 
@@ -84,6 +85,7 @@ const I18N_CARD = {
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
     min_age_lbl: "Mindestalter (0 = egal)", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
+    reminder_lbl: "Erinnerung", reminder_time_lbl: "Erinnern um", reminder_target_lbl: "Benachrichtigen über", reminder_event_only: "nur Ereignis",
     help_link: "Konfigurations-Handbuch (README)"
   }
 };
@@ -111,6 +113,19 @@ function toCardTimeOptions(value, emptyLabel) {
   if (v && !times.includes(v)) { times.push(v); times.sort(); }
   return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
     times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
+
+
+/**
+ * Options of the reminder target select: "event only" plus every `notify.*` service Home Assistant offers
+ * (value `notify.<name>`). A saved target that is no longer offered is kept as its own option.
+ */
+function toCardNotifyOptions(hass, selected, eventOnlyLabel) {
+  const names = Object.keys((hass && hass.services && hass.services.notify) || {}).filter(n => n !== 'send_message').sort();
+  const values = names.map(n => `notify.${n}`);
+  if (selected && !values.includes(selected)) values.push(selected);
+  return `<option value="" ${selected ? '' : 'selected'}>${eventOnlyLabel}</option>` +
+    values.map(v => `<option value="${v}" ${v === selected ? 'selected' : ''}>${v}</option>`).join('');
 }
 
 class TaskOrganizerCard extends HTMLElement {
@@ -1013,7 +1028,7 @@ class TaskOrganizerCard extends HTMLElement {
             this.shadowRoot.getElementById('f-interval').value = (t.interval !== undefined) ? t.interval : 7;
         }
         if (this.shadowRoot.getElementById('f-complexity')) this.shadowRoot.getElementById('f-complexity').value = t.complexity;
-        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine, t.reminder_at, t.reminder_target);
         this._subtasks = t.subtasks ? [...t.subtasks] : [];
         this._currentIcon = t.icon || "mdi:broom";
         
@@ -1132,6 +1147,18 @@ class TaskOrganizerCard extends HTMLElement {
     sel.value = '';
   }
 
+  /** Fills the reminder switch, time select and notify target select of the task editor. */
+  _setReminderFields(at, target) {
+    const sw = this.shadowRoot.getElementById('f-reminder');
+    const time = this.shadowRoot.getElementById('f-reminder-at');
+    const tgt = this.shadowRoot.getElementById('f-reminder-target');
+    if (sw) sw.checked = !!at;
+    if (time) time.innerHTML = toCardTimeOptions(at || '18:00', '—');
+    if (tgt) tgt.innerHTML = toCardNotifyOptions(this._hass, target || '', this.localize('reminder_event_only'));
+    const row = this.shadowRoot.getElementById('f-reminder-row');
+    if (row) row.hidden = !at;
+  }
+
   /**
    * Fills the kids-mode fields (category, minimum age, approval) of the task editor.
    * Legacy/unknown categories (e.g. "Allgemein") are shown as "basis".
@@ -1139,7 +1166,8 @@ class TaskOrganizerCard extends HTMLElement {
    * @param {number} minAge - Minimum age in years (0 = any).
    * @param {boolean} requiresApproval - A parent has to approve completions by kids.
    */
-  _setCategoryFields(category, minAge, requiresApproval = false, availableFrom = null, availableUntil = null, requiresRoutine = false) {
+  _setCategoryFields(category, minAge, requiresApproval = false, availableFrom = null, availableUntil = null, requiresRoutine = false, reminderAt = null, reminderTarget = '') {
+    this._setReminderFields(reminderAt, reminderTarget);
     const routine = this.shadowRoot.getElementById('f-routine');
     if (routine) routine.checked = !!requiresRoutine;
     const from = this.shadowRoot.getElementById('f-available-from');
@@ -1270,6 +1298,9 @@ class TaskOrganizerCard extends HTMLElement {
       // time window for kids ("" = no limit); the backend stores an empty value as "no limit"
       available_from: this.shadowRoot.getElementById('f-available-from')?.value || "",
       available_until: this.shadowRoot.getElementById('f-available-until')?.value || "",
+      // reminder: switch off = no reminder; "" target = only the event
+      reminder_at: this.shadowRoot.getElementById('f-reminder')?.checked ? (this.shadowRoot.getElementById('f-reminder-at')?.value || "18:00") : "",
+      reminder_target: this.shadowRoot.getElementById('f-reminder')?.checked ? (this.shadowRoot.getElementById('f-reminder-target')?.value || "") : "",
       assignees: assignees,
       custom_due_date: customDueDate,
       paused_until: pausedUntil,
@@ -1360,6 +1391,7 @@ class TaskOrganizerCard extends HTMLElement {
           .type-btn { flex: 1; padding: 12px; background: transparent; border: none; cursor: pointer; color: var(--secondary-text-color); font-size: 14px; font-weight: 500; transition: background-color 0.2s, color 0.2s; }
           .type-btn.active { background: var(--primary-color); color: var(--text-primary-color, white); }
           .form-row { display: flex; gap: 16px; }
+          .form-row[hidden] { display: none; }
           .form-col { flex: 1; }
           .form-select { width: 100%; box-sizing: border-box; height: 56px; padding: 0 12px; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color); font-family: inherit; font-size: 16px; }
           .template-suggestions { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
@@ -1494,6 +1526,19 @@ class TaskOrganizerCard extends HTMLElement {
                     <ha-formfield label="${this.localize('routine_lbl')}">
                         <ha-switch id="f-routine"></ha-switch>
                     </ha-formfield>
+                    <ha-formfield label="${this.localize('reminder_lbl')}">
+                        <ha-switch id="f-reminder"></ha-switch>
+                    </ha-formfield>
+                    <div class="form-row" id="f-reminder-row" hidden>
+                        <div class="form-col">
+                            <label class="form-label" for="f-reminder-at">${this.localize('reminder_time_lbl')}</label>
+                            <select id="f-reminder-at" class="form-select">${toCardTimeOptions('18:00', '—')}</select>
+                        </div>
+                        <div class="form-col">
+                            <label class="form-label" for="f-reminder-target">${this.localize('reminder_target_lbl')}</label>
+                            <select id="f-reminder-target" class="form-select">${toCardNotifyOptions(this._hass, '', this.localize('reminder_event_only'))}</select>
+                        </div>
+                    </div>
 
                     <div>
                         <label class="form-label">${this.localize('assignees_lbl')}</label>
@@ -1609,6 +1654,12 @@ class TaskOrganizerCard extends HTMLElement {
         });
     }
 
+    const reminderSw = this.shadowRoot.getElementById('f-reminder');
+    if (reminderSw) reminderSw.addEventListener('change', (e) => {
+        const row = this.shadowRoot.getElementById('f-reminder-row');
+        if (row) row.hidden = !e.target.checked;
+    });
+
     const overrideOverdueCb = this.shadowRoot.getElementById('f-override-overdue-cb');
     const overrideOverdueDays = this.shadowRoot.getElementById('f-override-overdue-days');
     if (overrideOverdueCb && overrideOverdueDays) {
@@ -1683,7 +1734,7 @@ class TaskOrganizerCard extends HTMLElement {
         this.shadowRoot.getElementById('f-area').value = t.area || '';
         this.shadowRoot.getElementById('f-complexity').value = t.complexity || 5;
         this.shadowRoot.getElementById('f-icon-picker').value = t.icon || 'mdi:broom';
-        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine, t.reminder_at, t.reminder_target);
         this.shadowRoot.getElementById('template-suggestions').innerHTML = '';
         
         this._subtasks = t.subtasks ? JSON.parse(JSON.stringify(t.subtasks)) : [];
