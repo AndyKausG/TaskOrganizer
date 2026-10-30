@@ -47,7 +47,10 @@ const I18N_PARENTS = {
     rewards_edit: "Manage rewards", rewards_title: "Rewards", rewards_none: "No rewards yet.", rewards_add: "Add reward",
     rewards_suggest: "Load suggestions", rewards_name: "Name", rewards_cost: "Cost (⭐)", rewards_age: "From age",
     rewards_active: "Active", rewards_delete: "Delete", rewards_save: "Save", toast_rewards_saved: "Rewards saved",
-    rewards_invalid: "Please give every reward a name and a cost from 1 to 1000.", rewards_max: "At most 30 rewards."
+    rewards_invalid: "Please give every reward a name and a cost from 1 to 1000.", rewards_max: "At most 30 rewards.",
+    praise_btn: "Praise", praise_title: "Praise {name}", praise_sticker: "Sticker", praise_msg_ph: "Your own words (optional)", praise_msg_lbl: "Message",
+    help_btn: "Help", praise_send: "Send praise", toast_praise: "Praise sent to {name}", type_praise: "Praise",
+    praise_c1: "Thanks for helping!", praise_c2: "You did that really well!", praise_c3: "I am proud of you!", praise_c4: "Great how you stuck with it!"
   },
   de: {
     title: "Eltern", only_parents: "Nur für Eltern. Ein Administrator kann Ihren Benutzer in den Einstellungen eintragen (Kinder > Eltern).",
@@ -83,7 +86,10 @@ const I18N_PARENTS = {
     rewards_edit: "Belohnungen verwalten", rewards_title: "Belohnungen", rewards_none: "Noch keine Belohnungen.", rewards_add: "Belohnung hinzufügen",
     rewards_suggest: "Vorschläge laden", rewards_name: "Name", rewards_cost: "Preis (⭐)", rewards_age: "Ab Alter",
     rewards_active: "Aktiv", rewards_delete: "Löschen", rewards_save: "Speichern", toast_rewards_saved: "Belohnungen gespeichert",
-    rewards_invalid: "Bitte jeder Belohnung einen Namen und einen Preis von 1 bis 1000 geben.", rewards_max: "Höchstens 30 Belohnungen."
+    rewards_invalid: "Bitte jeder Belohnung einen Namen und einen Preis von 1 bis 1000 geben.", rewards_max: "Höchstens 30 Belohnungen.",
+    praise_btn: "Loben", praise_title: "{name} loben", praise_sticker: "Sticker", praise_msg_ph: "Eigene Worte (optional)", praise_msg_lbl: "Nachricht",
+    help_btn: "Hilfe", praise_send: "Lob senden", toast_praise: "Lob an {name} gesendet", type_praise: "Lob",
+    praise_c1: "Danke fürs Helfen!", praise_c2: "Das hast du super gemacht!", praise_c3: "Ich bin stolz auf dich!", praise_c4: "Toll, wie du drangeblieben bist!"
   }
 };
 
@@ -103,7 +109,8 @@ window.customCards.push({
   preview: false,
 });
 
-const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️' };
+const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️', praise: '❤️' };
+const PARENTS_STICKERS = ['❤️', '⭐', '🌟', '👏', '🏆', '💪', '🦸', '🎉', '😊', '🙌'];
 
 /** Icon chips of the spontaneous bonus sheet: emoji + the mdi icon stored in the task. */
 const PARENTS_ADHOC_ICONS = [
@@ -160,6 +167,7 @@ class TaskOrganizerParents extends HTMLElement {
     this._undo = null;            // history id of the "undo" dialog
     this._adhoc = null;           // state of the spontaneous bonus sheet
     this._rw = null;              // reward editor state { list }
+    this._praise = null;          // praise sheet state { kidId, sticker, message }
     this.wallet = {};
     this.redemptions = {};
     this._toastTimer = null;
@@ -370,7 +378,10 @@ class TaskOrganizerParents extends HTMLElement {
       else row[f] = el.value;
       return;
     }
-    if (el.id === 'reason-input' && this._sheet) {
+    if (el.id === 'praise-input' && this._praise) {
+      this._praise.message = el.value;
+      this.shadowRoot.querySelectorAll('[data-action="praise-chip"]').forEach(c => c.classList.toggle('on', c.dataset.text === el.value));
+    } else if (el.id === 'reason-input' && this._sheet) {
       this._sheet.reason = el.value;
       this._updateSheetState();
     } else if (el.id === 'adhoc-name' && this._adhoc) {
@@ -390,7 +401,7 @@ class TaskOrganizerParents extends HTMLElement {
     else if (action === 'not-done') this._reject(el.dataset.id, 'not_done');
     else if (action === 'cheated') { this._confirm = el.dataset.id; this._renderLayer(); }
     else if (action === 'cheated-confirm') { const id = this._confirm; this._confirm = null; this._renderLayer(); this._reject(id, 'cheated'); }
-    else if (action === 'dialog-close') { this._confirm = null; this._sheet = null; this._undo = null; this._adhoc = null; this._rw = null; this._renderLayer(); }
+    else if (action === 'dialog-close') { this._confirm = null; this._sheet = null; this._undo = null; this._adhoc = null; this._rw = null; this._praise = null; this._renderLayer(); }
     else if (action === 'undo') { this._undo = el.dataset.id; this._renderLayer(); }
     else if (action === 'undo-confirm') this._doUndo();
     else if (action === 'adhoc-open') this._openAdhoc();
@@ -400,6 +411,11 @@ class TaskOrganizerParents extends HTMLElement {
     else if (action === 'adjust-confirm') this._submitAdjust();
     else if (action === 'rd-approve') this._resolveRedemption(el.dataset.id, true);
     else if (action === 'rd-reject') this._resolveRedemption(el.dataset.id, false);
+    else if (action === 'praise-open') { this._praise = { kidId: el.dataset.kid, sticker: '❤️', message: '' }; this._renderLayer(); const i = this.shadowRoot.getElementById('praise-input'); if (i) i.focus(); }
+    else if (action === 'praise-sticker' && this._praise) { this._praise.sticker = el.dataset.sticker; this._renderLayer(); }
+    else if (action === 'praise-chip' && this._praise) { this._praise.message = el.dataset.text; this._renderLayer(); }
+    else if (action === 'praise-send') this._sendPraise();
+    else if (action === 'help') { if (window.TaskOrganizerHelp) window.TaskOrganizerHelp.open(this._hass, el.dataset.anchor); }
     else if (action === 'rw-open') this._openRewards();
     else if (action === 'rw-add') this._rewardsAdd(false);
     else if (action === 'rw-suggest') this._rewardsAdd(true);
@@ -625,6 +641,50 @@ class TaskOrganizerParents extends HTMLElement {
     this._fetchData();
   }
 
+  async _sendPraise() {
+    const pr = this._praise;
+    if (!pr || this._busy.has('praise')) return;
+    this._busy.add('praise');
+    const kid = this._kid(pr.kidId);
+    try {
+      await this._hass.callWS({ type: 'task_organizer/send_praise', kid_id: pr.kidId, sticker: pr.sticker, message: pr.message.trim().slice(0, 120) });
+      this._praise = null;
+      this._renderLayer();
+      this._toast(this.localize('toast_praise', { name: kid.name }));
+    } catch (err) {
+      this._toast(this.localize('err') + (err && err.message ? err.message : ''));
+    }
+    this._busy.delete('praise');
+    this._fetchData();
+  }
+
+  _renderPraiseSheet() {
+    const pr = this._praise;
+    const kid = this._kid(pr.kidId);
+    const stickers = PARENTS_STICKERS.map(e =>
+      `<button class="chip ico ${pr.sticker === e ? 'on' : ''}" data-action="praise-sticker" data-sticker="${e}" aria-pressed="${pr.sticker === e}" aria-label="${e}">${e}</button>`).join('');
+    const chips = ['praise_c1', 'praise_c2', 'praise_c3', 'praise_c4'].map(k => {
+      const text = this.localize(k);
+      return `<button class="chip ${pr.message === text ? 'on' : ''}" data-action="praise-chip" data-text="${escParents(text)}">${escParents(text)}</button>`;
+    }).join('');
+    return `
+      <div class="scrim" data-action="dialog-close"></div>
+      <div class="sheet adhoc" role="dialog" aria-modal="true" aria-label="${escParents(this.localize('praise_title', { name: kid.name }))}" style="--kc:${kid.color}">
+        <div class="grab"></div>
+        <h3>${this._avatar(kid)} ${escParents(this.localize('praise_title', { name: kid.name }))}</h3>
+        <div class="praise-big" aria-hidden="true">${pr.sticker}</div>
+        <div class="lbl">${escParents(this.localize('praise_sticker'))}</div>
+        <div class="chips">${stickers}</div>
+        <div class="chips">${chips}</div>
+        <input id="praise-input" type="text" maxlength="120" autocomplete="off" placeholder="${escParents(this.localize('praise_msg_ph'))}"
+               aria-label="${escParents(this.localize('praise_msg_lbl'))}" value="${escParents(pr.message)}">
+        <div class="dialog-actions">
+          <button class="btn neutral" data-action="dialog-close">${escParents(this.localize('cancel'))}</button>
+          <button class="btn ok solid" data-action="praise-send">${escParents(this.localize('praise_send'))}</button>
+        </div>
+      </div>`;
+  }
+
   // ---- spontaneous bonus ------------------------------------------------------
 
   _openAdhoc() {
@@ -776,7 +836,7 @@ class TaskOrganizerParents extends HTMLElement {
     } else {
       body = `${this._renderApprovals()}${this._renderRedemptions()}${this._renderKids()}`;
     }
-    app.innerHTML = `<ha-card><div class="head">${title}</div><div class="body">${body}</div></ha-card>`;
+    app.innerHTML = `<ha-card><div class="head"><span class="head-title">${title}</span>${window.TaskOrganizerHelp ? `<button class="help-btn" data-action="help" data-anchor="daily">❓ ${escParents(this.localize('help_btn'))}</button>` : ''}</div><div class="body">${body}</div></ha-card>`;
     // The dialog layer is not rebuilt on data refreshes (it would reset what is typed);
     // it only closes when its approval was handled elsewhere in the meantime.
     if (this._confirm && !this.pending[this._confirm]) {
@@ -843,6 +903,7 @@ class TaskOrganizerParents extends HTMLElement {
           ${kid.goal > 0 ? `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${pct}%"></div></div>` : ''}
           ${strict}
           <div class="quick">${quick}</div>
+          <button class="praise-btn" data-action="praise-open" data-kid="${escParents(kid.id)}">❤️ ${escParents(this.localize('praise_btn'))}</button>
           <details class="hist" data-kid-history="${escParents(kid.id)}" ${this._open.has(kid.id) ? 'open' : ''}>
             <summary>${escParents(this.localize('history'))}</summary>
             ${entries.length ? entries.map(h => this._renderEntry(h)).join('') : `<div class="empty small">${escParents(this.localize('no_history'))}</div>`}
@@ -857,7 +918,7 @@ class TaskOrganizerParents extends HTMLElement {
   _renderEntry(h) {
     const type = PARENTS_TYPE_ICONS[h.type] ? h.type : 'task';
     const points = parseFloat(h.points) || 0;
-    const name = (type === 'bonus' || type === 'penalty') ? (h.reason || h.task_name) : h.task_name;
+    const name = (type === 'bonus' || type === 'penalty' || type === 'praise') ? (h.reason || h.task_name) : h.task_name;
     const when = new Date(h.timestamp).toLocaleString((this._hass && this._hass.language) || undefined, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
     return `
       <div class="entry">
@@ -866,7 +927,7 @@ class TaskOrganizerParents extends HTMLElement {
           ${(type === 'task' || type === 'birthday' || type === 'skipped') && h.reason ? `<span class="e-reason">${escParents(h.reason)}</span>` : ''}
           <span class="e-when">${escParents(when)}</span>
           ${type === 'task' ? `<button class="undo" data-action="undo" data-id="${escParents(h.id)}">↩️ ${escParents(this.localize('undo'))}</button>` : ''}</span>
-        <span class="e-pts ${points < 0 ? 'neg' : ''}">${type === 'missed' || type === 'skipped' ? '0' : points < 0 ? '−' + fmtParents(Math.abs(points)) : '+' + fmtParents(points)}</span>
+        <span class="e-pts ${points < 0 ? 'neg' : ''}">${type === 'praise' ? escParents(h.sticker || '') : type === 'missed' || type === 'skipped' ? '0' : points < 0 ? '−' + fmtParents(Math.abs(points)) : '+' + fmtParents(points)}</span>
       </div>`;
   }
 
@@ -913,6 +974,10 @@ class TaskOrganizerParents extends HTMLElement {
         </div>`;
       return;
     }
+    if (this._praise) {
+      layer.innerHTML = this._renderPraiseSheet();
+      return;
+    }
     if (this._rw) {
       layer.innerHTML = this._renderRewardsSheet();
       return;
@@ -957,7 +1022,9 @@ class TaskOrganizerParents extends HTMLElement {
       :host { display: block; --p-ok: #2E7D32; --p-danger: #C62828; --p-line: var(--divider-color, #d6d6d6); --p-sub: var(--secondary-text-color, #666); }
       * { box-sizing: border-box; }
       ha-card { display: block; padding: 16px; }
-      .head { font-size: 22px; font-weight: 700; margin-bottom: 12px; color: var(--primary-text-color); }
+      .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 22px; font-weight: 700; margin-bottom: 12px; color: var(--primary-text-color); }
+      .head-title { min-width: 0; overflow-wrap: anywhere; }
+      .help-btn { flex: none; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 2px solid var(--p-line); background: var(--card-background-color, #fff); color: var(--primary-text-color); font-size: 14px; font-weight: 700; }
       .body { display: flex; flex-direction: column; gap: 20px; color: var(--primary-text-color); }
       h2 { margin: 0 0 10px; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
       h3 { margin: 0 0 8px; font-size: 18px; display: flex; align-items: center; gap: 10px; }
@@ -1011,6 +1078,10 @@ class TaskOrganizerParents extends HTMLElement {
       .qbtn.plus { border-color: var(--p-ok); color: var(--p-ok); }
       .qbtn.minus { border-color: var(--p-danger); color: var(--p-danger); }
       .qbtn:active { transform: scale(0.96); }
+      .praise-btn { min-height: 48px; border-radius: 12px; font-size: 16px; font-weight: 700; border: 2px solid #E91E63; color: #C2185B; background: color-mix(in srgb, #E91E63 8%, var(--card-background-color, #fff)); }
+      .praise-btn:active { transform: scale(0.98); }
+      .praise-big { font-size: 56px; line-height: 1.1; text-align: center; margin: 0 0 4px; }
+      #praise-input { width: 100%; height: 48px; padding: 0 14px; border-radius: 12px; border: 2px solid var(--p-line); background: var(--primary-background-color, #fafafa); color: var(--primary-text-color); font-size: 16px; font-family: inherit; margin-bottom: 4px; }
       .hist summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--p-sub); min-height: 32px; display: flex; align-items: center; }
       .entry { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-top: 1px solid var(--p-line); font-size: 14px; }
       .e-icon { flex: none; width: 24px; text-align: center; }

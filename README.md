@@ -197,6 +197,12 @@ Kids mode turns TaskOrganizer into a motivating family system for kids (designed
 
 **Typical setup:** one wall tablet (e.g. an Android tablet with Fully Kiosk Browser) that is permanently logged in as a single Home Assistant user (e.g. "Tablet", not an admin) and shows the kids card. The parents use their own admin users on their phones.
 
+### Parents guide (in-app help)
+A practical guide for parents (basic idea, 10-minute setup, ramp-up weeks, daily routine, approvals, choosing rewards, praising, goals, phasing out, FAQ) in German, French and English:
+
+* In Home Assistant: the **❓ Hilfe** buttons of the parents card, the Kids section of the settings card and the quick-start wizard open it as a full-screen overlay at the matching chapter (table of contents, collapsible chapters, search, works offline; language from your Home Assistant profile, fallback English). It can also be placed as a card: `type: custom:task-organizer-help` (optional `anchor: ramp` to open a chapter).
+* As documents: [Deutsch](docs/parents-guide.de.md) · [Français](docs/parents-guide.fr.md) · [English](docs/parents-guide.en.md).
+
 ### Kids do not need a Home Assistant user
 Kids are `person` entities. The *participant ID* used for points, history and assignees is the `user_id` attribute of the person if there is one, otherwise the entity id (e.g. `person.anna`). Existing data that is keyed by user id keeps working unchanged. All cards (task list, leaderboard, protocol, reports, settings) and the services (`assignees`, `complete_task_by_name`) understand both kinds of IDs.
 
@@ -265,7 +271,7 @@ A Home Assistant user with a parent role (administrator, manager or parent, see 
 Both answer `{"success": false, "error": "not_found"}` for an unknown task (`parent_complete_for` also `unknown_kid`).
 
 ### Doing a task together
-On every task a kid can complete (duty or bonus) the kids card offers a second button **👫 Zusammen**. It opens a picker with the avatars of the other kids who are old enough for the task (the assignment does not matter). Every selected helper confirms with the own PIN on the normal PIN pad ("Please confirm that you helped"); a kid without PIN is confirmed by the tap. Then `kid_complete_task` is called with `helpers: [{"kid_id": ..., "pin": ...}]`:
+On every task with `allow_together` the kids card offers a second button **👫 Zusammen** (disabled while required steps are open). The flag is set per task and template (editor switch "Doing it together allowed", services, `add_task` / `edit_task` / `add_template` / `edit_template`); missing = `true` for `bonus` / `auftrag`, `false` for `basis`. The wizard sets it `true` for shareable chores (dishwasher, table, garden, driveway, plants, pets) and open bonus tasks and `false` for personal ones (morning/evening mission, room, own laundry, bedding). `kid_complete_task` with helpers on a task without it answers `together_not_allowed` before any PIN is checked. It opens a picker with the avatars of the other kids who are old enough for the task (the assignment does not matter). Every selected helper confirms with the own PIN on the normal PIN pad ("Please confirm that you helped"); a kid without PIN is confirmed by the tap. Then `kid_complete_task` is called with `helpers: [{"kid_id": ..., "pin": ...}]`:
 
 * The backend verifies every helper PIN with the normal lockout of that kid (5 wrong attempts lock it for 60 s). Structural checks (duplicate helper, the main kid as helper, unknown kid, too young) come first and cost no attempt; the first failing helper stops the check, so a request cannot try more PINs than a direct PIN check. Answers: `{"success": false, "error": "wrong_pin" | "locked" | "too_young" | "unknown_kid" | "duplicate_helper", "helper_id": "<kid>"}`.
 * The points of the task are split equally among all participants (rounded to 0.1 per kid, like the shared completion of the classic card). The setting `team_bonus` (0-3 points, default 1, settings card > Kids > Teamwork) adds that many extra points per participant as a separate history entry of type `bonus` with the reason "Teamarbeit" / "Teamwork"; it belongs to the same completion, so ↩️ undo takes it back as well, and it does not count for the family goal. A task done alone never gets a team bonus.
@@ -441,11 +447,35 @@ The websocket command `task_organizer/adjust_points` (admin, manager or parent) 
 **Family goal:** `family_points` (in `get_data`, used by the family rocket) is computed from this period's history entries of type `task`; birthday bonus, bonus points and deductions do not count.
 
 ### Parents card (`task-organizer-parents`)
-A phone-friendly dashboard for parents (administrators and users with the parents role, see "Parents role"): open approvals with the buttons Approve / Not done / Cheated (with a confirmation that shows the deduction), quick +1 +5 -1 -5 per kid with a reason sheet, the **➕ Spontan-Bonus** button ([spontaneous bonus](#spontaneous-bonus)), strict mode indicator and the latest history entries per kid, where task entries have a **↩️ Rückgängig** button ([undo](#undo-parents)). Non-admins only see a short note.
+A phone-friendly dashboard for parents (administrators and users with the parents role, see "Parents role"): open approvals with the buttons Approve / Not done / Cheated (with a confirmation that shows the deduction), quick +1 +5 -1 -5 per kid with a reason sheet, the **❤️ Loben** button ([praise](#praise)), the **➕ Spontan-Bonus** button ([spontaneous bonus](#spontaneous-bonus)), strict mode indicator and the latest history entries per kid, where task entries have a **↩️ Rückgängig** button ([undo](#undo-parents)). Non-admins only see a short note.
 
 ```yaml
 type: custom:task-organizer-parents
 title: Parents
+```
+
+### Praise
+Social recognition without points. On the parents card every kid has a **❤️ Loben** button: a sheet with sticker chips (❤️ ⭐ 🌟 👏 🏆 💪 🦸 🎉 😊 🙌), message chips ("Danke fürs Helfen!", "Das hast du super gemacht!", "Ich bin stolz auf dich!", "Toll, wie du drangeblieben bist!") and a free text (max 120 characters). The websocket command `task_organizer/send_praise` (`kid_id`, `sticker`, optional `message`; admin, manager or parent) stores the praise in `data["praise"]` (the last 50 per kid; `id`, `kid_id`, `from_name`, `message`, `sticker`, `timestamp`, `seen`), where `from_name` is the name of the person linked to the sending user (else the user name), adds a history entry of type `praise` with 0 points (protocol card: ❤️ and the message; statistics and goals ignore it) and fires `task_organizer_praise`.
+
+On the kids card unseen praise shows as a small bouncing sticker on **that kid's** home tile only (no comparison between siblings). When the kid opens their view (after the PIN, or on the own device with `mode: mine`) a big friendly overlay shows sticker, message and "von <name>" with a gentle sound (setting `sound`); closing it calls `kid_praise_seen` (`kid_id`, `pin`, `praise_id`) or `my_praise_seen` (`praise_id`) and marks it as seen. A kid can only mark its own praise.
+
+#### Event `task_organizer_praise`
+Data: `kid_id`, `kid_name`, `from_name`, `message`, `sticker`. Example: read the praise out on the Fully Kiosk tablet (media player of the Fully Kiosk Browser integration):
+
+```yml
+alias: "TaskOrganizer: Read out praise on the tablet"
+trigger:
+  - platform: event
+    event_type: "task_organizer_praise"
+action:
+  - action: tts.speak
+    target:
+      entity_id: tts.home_assistant_cloud      # your TTS entity
+    data:
+      media_player_entity_id: media_player.tablet_kitchen   # the Fully Kiosk media player
+      message: >
+        {{ trigger.event.data.kid_name }}, a message from {{ trigger.event.data.from_name }}:
+        {{ trigger.event.data.message }}
 ```
 
 ### Parents role

@@ -11,7 +11,7 @@
  */
 const I18N_WIZARD = {
   en: {
-    title: "Kids mode quick start", close: "Close", back: "Back", next: "Next", create: "Create setup", done: "Done",
+    title: "Kids mode quick start", help: "Help", close: "Close", back: "Back", next: "Next", create: "Create setup", done: "Done",
     step_kids: "Kids", step_home: "Household", step_tasks: "Tasks", step_goals: "Goals", step_summary: "Summary",
     step_of: "Step {n} of {m}", loading: "Loading…", error: "Something went wrong: ",
     kids_intro: "Which persons are kids? Birth year, avatar and color are used for age-appropriate tasks and on the kids card.",
@@ -51,7 +51,7 @@ const I18N_WIZARD = {
     sel_kids: "Kids", sel_home: "Household"
   },
   de: {
-    title: "Kindermodus-Schnellstart", close: "Schließen", back: "Zurück", next: "Weiter", create: "Anlegen", done: "Fertig",
+    title: "Kindermodus-Schnellstart", help: "Hilfe", close: "Schließen", back: "Zurück", next: "Weiter", create: "Anlegen", done: "Fertig",
     step_kids: "Kinder", step_home: "Haushalt", step_tasks: "Aufgaben", step_goals: "Ziele", step_summary: "Zusammenfassung",
     step_of: "Schritt {n} von {m}", loading: "Lade…", error: "Es ist ein Fehler aufgetreten: ",
     kids_intro: "Welche Personen sind Kinder? Geburtsjahr, Avatar und Farbe bestimmen die altersgerechten Aufgaben und die Kinder-Karte.",
@@ -119,7 +119,7 @@ const wzBdayMonths = {
   de: ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'],
   en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 };
-function wzBdayHtml(value, attrs, lang, disabled) {
+function wzBdayHtml(value, attrs, lang, disabled, future = false) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
   const [y, mo, d] = m ? [+m[1], +m[2], +m[3]] : [0, 0, 0];
   const now = new Date().getFullYear();
@@ -131,7 +131,8 @@ function wzBdayHtml(value, attrs, lang, disabled) {
   let mons = opt('', lang === 'de' ? 'Monat' : 'Month', !mo);
   months.forEach((n, i) => { mons += opt(i + 1, n, i + 1 === mo); });
   let years = opt('', lang === 'de' ? 'Jahr' : 'Year', !y);
-  for (let i = now; i >= now - 25; i--) years += opt(i, i, i === y);
+  if (future) { for (let i = now; i <= now + 1; i++) years += opt(i, i, i === y); }
+  else { for (let i = now; i >= now - 25; i--) years += opt(i, i, i === y); }
   if (y && y < now - 25) years += opt(y, y, true);
   return `<span class="bday-sel" style="display:flex;gap:6px">
       <select data-part="d" ${dis} style="flex:0.8;min-width:0;height:38px;padding:0 6px;font-size:15px;border:1px solid var(--divider-color,#ccc);border-radius:6px;background:var(--primary-background-color,#fff);color:var(--primary-text-color,#212121)">${days}</select>
@@ -158,6 +159,7 @@ function wzBdayBind(root) {
       const hidden = box.querySelector('input[type="hidden"]');
       hidden.value = iso;
       hidden.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      hidden.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
     });
   });
 }
@@ -674,6 +676,7 @@ class TaskOrganizerWizard extends HTMLElement {
       .wz { background: var(--card-background-color, #fff); width: min(1120px, 96vw); height: min(880px, 94vh); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
       .head { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--divider-color, #e0e0e0); }
       .head h2 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; min-width: 0; }
+      .help { flex: none; min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--divider-color, #e0e0e0); background: var(--secondary-background-color, #f0f0f0); color: var(--primary-text-color, #212121); font-size: 13px; font-weight: 600; cursor: pointer; }
       .x { background: transparent; border: none; font-size: 22px; cursor: pointer; color: var(--secondary-text-color, #727272); width: 40px; height: 40px; border-radius: 50%; }
       .x:hover { background: var(--secondary-background-color, #f0f0f0); }
       .steps { display: flex; gap: 6px; padding: 10px 20px 0; flex-wrap: wrap; }
@@ -773,7 +776,7 @@ class TaskOrganizerWizard extends HTMLElement {
     const finished = this._step === 5;
     this.shadowRoot.innerHTML = `${this._styles()}
       <div class="overlay"><div class="wz" role="dialog" aria-modal="true" aria-label="${wzEsc(this._t('title'))}">
-        <div class="head"><h2>🚀 ${wzEsc(this._t('title'))}</h2><button class="x" data-act="close" aria-label="${wzEsc(this._t('close'))}">✕</button></div>
+        <div class="head"><h2>🚀 ${wzEsc(this._t('title'))}</h2>${window.TaskOrganizerHelp ? `<button class="help" data-act="help">❓ ${wzEsc(this._t('help'))}</button>` : ''}<button class="x" data-act="close" aria-label="${wzEsc(this._t('close'))}">✕</button></div>
         ${finished ? '' : `
         <div class="steps">${stepNames.map((n, i) => `<div class="pill ${i === step ? 'active' : i < step ? 'done' : ''}"><b>${i < step ? '✓' : i + 1}</b>${wzEsc(this._t(n))}</div>`).join('')}</div>
         <div class="stepline">${wzEsc(this._t('step_of', { n: step + 1, m: 5 }))} · ${wzEsc(this._t(stepNames[step]))}</div>
@@ -901,8 +904,8 @@ class TaskOrganizerWizard extends HTMLElement {
     return `<p class="muted">${wzEsc(this._t('home_intro'))}</p>
       <div class="tiles">${tiles}</div>
       ${triggers ? `<h3>⚡ ${wzEsc(this._t('auto_title'))}</h3><p class="muted">${wzEsc(this._t('auto_open_hint'))}</p><div class="cols">${triggers}</div>` : ''}
-      <div><label class="f" style="max-width:240px">${wzEsc(this._t('start_date'))}
-        <input type="date" data-act="start-date" value="${wzEsc(s.startDate)}"></label>
+      <div><label class="f" style="max-width:320px">${wzEsc(this._t('start_date'))}
+        ${wzBdayHtml(wzEsc(s.startDate), 'data-act="start-date"', this._lang, false, true)}</label>
         <p class="muted" style="margin-top:6px">${wzEsc(this._t('start_hint'))}</p></div>
       <div><label class="f" style="max-width:240px">${wzEsc(this._t('household_day'))}
         <select data-act="household-day">${[0, 1, 2, 3, 4, 5, 6].map(d => `<option value="${d}" ${s.householdDay === d ? 'selected' : ''}>${wzEsc(this._weekday(d))}</option>`).join('')}</select></label>
@@ -1083,6 +1086,7 @@ class TaskOrganizerWizard extends HTMLElement {
     const act = el.dataset.act;
     const s = this._s;
     if (act === 'close') this.close();
+    else if (act === 'help') { if (window.TaskOrganizerHelp) window.TaskOrganizerHelp.open(this._hass, 'setup'); }
     else if (act === 'back' && this._step > 0) this._go(this._step - 1);
     else if (act === 'next' && this._canNext()) this._go(this._step + 1);
     else if (act === 'apply') this._apply();

@@ -61,11 +61,11 @@ const I18N_SETTINGS = {
     family_goal: "Family goal", family_goal_points: "Points per month (all kids together)", family_goal_reward: "Reward", family_goal_reward_ph: "e.g. Ice cream trip",
 claim_minutes: "Bonus reservation (minutes)",
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
-    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
+    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties", together_lbl: "Doing it together allowed",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
     reminder_lbl: "Reminder", reminder_time_lbl: "Remind at", reminder_target_lbl: "Notify via", reminder_event_only: "Event only",
     expire_missed: "Missed duties expire at midnight (daily duties right away, weekly ones after 2 days) - no points, no deduction",
-    wizard_btn: "🚀 Kids mode quick start", wizard_hint: "Proposes an age-appropriate set of tasks, points and goals for your kids and creates everything in one click.",
+    help_btn: "Help", wizard_btn: "🚀 Kids mode quick start", wizard_hint: "Proposes an age-appropriate set of tasks, points and goals for your kids and creates everything in one click.",
     wizard_missing: "The wizard could not be loaded. Reload the page (Ctrl+F5) and try again.",
     triggers_title: "Bonus triggers", triggers_desc: "Open a bonus task automatically when an entity changes to a state, e.g. when the dishwasher is finished. Fires the event task_organizer_bonus_opened.",
     trig_task: "Bonus task", trig_pick_task: "— choose a bonus task —", trig_add: "Add trigger", trig_remove: "Remove trigger", trig_none: "No triggers yet.", trig_no_bonus: "No bonus task yet. Create a task without assignee and category \"Bonus\" (or let the quick start create them).",
@@ -128,11 +128,11 @@ claim_minutes: "Bonus reservation (minutes)",
     family_goal: "Familienziel", family_goal_points: "Punkte pro Monat (alle Kinder zusammen)", family_goal_reward: "Belohnung", family_goal_reward_ph: "z.B. Eis essen gehen",
 claim_minutes: "Bonus-Reservierung (Minuten)",
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
-    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
+    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten", together_lbl: "Zusammen erledigen erlaubt",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
     reminder_lbl: "Erinnerung", reminder_time_lbl: "Erinnern um", reminder_target_lbl: "Benachrichtigen über", reminder_event_only: "nur Ereignis",
     expire_missed: "Verpasste Pflichten verfallen um Mitternacht (tägliche sofort, wöchentliche nach 2 Tagen) – ohne Punkte, ohne Abzug",
-    wizard_btn: "🚀 Kindermodus-Schnellstart", wizard_hint: "Schlägt altersgerechte Aufgaben, Punkte und Ziele für eure Kinder vor und legt alles mit einem Klick an.",
+    help_btn: "Hilfe", wizard_btn: "🚀 Kindermodus-Schnellstart", wizard_hint: "Schlägt altersgerechte Aufgaben, Punkte und Ziele für eure Kinder vor und legt alles mit einem Klick an.",
     wizard_missing: "Der Assistent konnte nicht geladen werden. Seite neu laden (Strg+F5) und erneut versuchen.",
     triggers_title: "Bonus-Auslöser / Bonus triggers", triggers_desc: "Öffnet eine Bonus-Aufgabe automatisch, wenn eine Entität einen Zustand annimmt, z.B. wenn die Spülmaschine fertig ist. Löst das Ereignis task_organizer_bonus_opened aus.",
     trig_task: "Bonus-Aufgabe", trig_pick_task: "— Bonus-Aufgabe wählen —", trig_add: "Auslöser hinzufügen", trig_remove: "Auslöser entfernen", trig_none: "Noch keine Auslöser.", trig_no_bonus: "Noch keine Bonus-Aufgabe vorhanden. Lege eine Aufgabe ohne Bearbeiter mit Kategorie „Bonus“ an (oder lass sie vom Schnellstart anlegen).",
@@ -724,6 +724,7 @@ class TaskOrganizerSettings extends HTMLElement {
     else if (id === 'kids-toggle') { this._kidsOpen = !this._kidsOpen; this._render(); }
     else if (id === 'trig-toggle') { this._trigOpen = !this._trigOpen; this._render(); }
     else if (id === 'btn-wizard-open') this._openWizard();
+    else if (id === 'btn-help-open') { if (window.TaskOrganizerHelp) window.TaskOrganizerHelp.open(this._hass, 'setup'); }
     else if (id === 'btn-trig-add') this._addTrigger();
     else if (target.classList.contains('btn-trig-del')) this._removeTrigger(parseInt(target.dataset.index));
     else if (target.classList.contains('kid-emoji-pick')) {
@@ -881,6 +882,7 @@ class TaskOrganizerSettings extends HTMLElement {
       min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('tmpl-min-age').value) || 0)),
       requires_approval: !!this.shadowRoot.getElementById('tmpl-approval')?.checked,
       requires_routine: !!this.shadowRoot.getElementById('tmpl-routine')?.checked,
+      allow_together: !!this.shadowRoot.getElementById('tmpl-together')?.checked,
       available_from: this.shadowRoot.getElementById('tmpl-available-from')?.value || '',
       available_until: this.shadowRoot.getElementById('tmpl-available-until')?.value || '',
       reminder_at: this.shadowRoot.getElementById('tmpl-reminder')?.checked ? (this.shadowRoot.getElementById('tmpl-reminder-at')?.value || '18:00') : '',
@@ -1164,6 +1166,7 @@ class TaskOrganizerSettings extends HTMLElement {
         .parent-name { flex: 1 1 140px; font-weight: 500; font-size: 14px; color: var(--primary-text-color); }
         .parent-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--primary-text-color); }
         .wizard-box { display: flex; flex-direction: column; gap: 6px; }
+        .btn-help { align-self: flex-start; background: var(--secondary-background-color, #f0f0f0); color: var(--primary-text-color); font-size: 14px; }
         .btn-wizard { background: linear-gradient(135deg, #7E57C2, #2196F3); color: white; font-size: 15px; }
         .trig-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px 8px 8px 12px; background: var(--card-background-color); }
         .trig-text { flex: 1; min-width: 0; font-size: 13px; color: var(--secondary-text-color); overflow-wrap: anywhere; }
@@ -1263,6 +1266,7 @@ class TaskOrganizerSettings extends HTMLElement {
           </div>
           <div class="section-content ${this._kidsOpen ? 'open' : ''}" id="kids-content">
             <p class="kids-note">${this.localize('kids_desc')}</p>
+            ${window.TaskOrganizerHelp ? `<button class="btn btn-help" id="btn-help-open">❓ ${this.localize('help_btn')}</button>` : ''}
             ${isAdmin ? '' : `<p class="kids-note" style="color: var(--warning-color, #FFA000);">${this.localize('kids_admin_only')}</p>`}
             ${isAdmin ? `
               <div class="wizard-box">
@@ -1835,6 +1839,9 @@ class TaskOrganizerSettings extends HTMLElement {
               <ha-formfield label="${this.localize('routine_lbl')}">
                   <ha-switch id="tmpl-routine" ${template?.requires_routine ? 'checked' : ''}></ha-switch>
               </ha-formfield>
+              <ha-formfield label="${this.localize('together_lbl')}">
+                  <ha-switch id="tmpl-together" ${(template?.allow_together ?? ['bonus', 'auftrag'].includes(template?.category)) ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
               <ha-formfield label="${this.localize('reminder_lbl')}">
                   <ha-switch id="tmpl-reminder" ${template?.reminder_at ? 'checked' : ''}></ha-switch>
               </ha-formfield>
@@ -1927,6 +1934,10 @@ class TaskOrganizerSettings extends HTMLElement {
       if (ev.target && ev.target.id === 'tmpl-reminder') {
         const row = this.shadowRoot.getElementById('tmpl-reminder-row');
         if (row) row.hidden = !ev.target.checked;
+      }
+      if (ev.target && ev.target.id === 'tmpl-category') {
+        const together = this.shadowRoot.getElementById('tmpl-together');
+        if (together) together.checked = ev.target.value !== 'basis';
       }
     });
     this.shadowRoot.querySelector('#import-modal').addEventListener('click', (ev) => this._handleClick(ev));

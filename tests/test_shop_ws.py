@@ -131,7 +131,7 @@ async def test_wallet_credit_paths(hass, hass_ws_client, setup, freezer):
     assert (await _call(ws, "task_organizer/approve", pending_id=pid))["success"]
     assert _wallet(hass) == 7
     # team bonus: 4 points shared by two + 1 bonus each
-    tid = await _task(ws, complexity=4, assignees=[])
+    tid = await _task(ws, complexity=4, assignees=[], allow_together=True)
     res = await _complete(ws, tid, helpers=[{"kid_id": BEN, "pin": "2222"}])
     assert res["success"], res
     assert _wallet(hass) == 7 + 2 + 1 and _wallet(hass, BEN) == 3

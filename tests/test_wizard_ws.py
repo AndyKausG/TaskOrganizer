@@ -379,3 +379,18 @@ async def test_listeners_are_cleaned_up_on_unload(hass, hass_ws_client, setup):
     assert await hass.config_entries.async_setup(setup.entry_id)
     await hass.async_block_till_done()
     assert hass.data[DOMAIN]["bonus_unsub"]
+
+
+async def test_wizard_tasks_carry_allow_together_and_updates_apply_it(hass, hass_ws_client, setup):
+    ws = await hass_ws_client(hass)
+    assert (await _apply(ws))["success"]
+    tasks = _by_key(hass)
+    assert tasks["morning:person.anna"]["allow_together"] is False
+    assert tasks["room_deep:person.anna"]["allow_together"] is False
+    assert tasks["table_set:person.anna"]["allow_together"] is True
+    assert tasks["trash:open"]["allow_together"] is True
+    assert all(t["allow_together"] for t in hass.data[DOMAIN]["data"]["templates"].values())
+    # an in-place update (re-run) re-applies the catalog value
+    tasks["morning:person.anna"]["allow_together"] = True
+    assert (await _apply(ws, replace_existing=True))["success"]
+    assert _by_key(hass)["morning:person.anna"]["allow_together"] is False

@@ -45,6 +45,7 @@ const I18N_KIDS = {
     return_home_lbl: "Return to home screen after \"Done!\"",
     bday_banner: "🎂 It's {name}'s birthday today! {name} turns {age}!",
     bday_title: "Happy birthday, {name}!", bday_age: "You are {age} now!", bday_go: "Let's go!",
+    praise_title: "Someone is proud of you!", praise_from: "from {name}", praise_ok: "Yay!", praise_tag: "New praise for you!",
     free_today: "You are off duty today! 🎉",
     levelup_title: "Level-Up 🏆", levelup_new: "New - you are allowed to do this now:",
     levelup_none: "New adventures are waiting for you!",
@@ -55,7 +56,7 @@ const I18N_KIDS = {
     from_time: "from {t}", countdown: "{n} min to go", window_over: "Over for today - new chance tomorrow",
     until_time: "until {t}",
     err_not_yet: "Not yet! This task starts a little later.",
-    err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!",
+    err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!", err_together_not_allowed: "This task is a solo job.",
     steps_left: "Still {n} step(s) to tick",
     pa_skip: "Skip today", pa_postpone: "Postpone", pa_complete: "Complete for {name}", pa_undo: "Undo",
     pa_cancel: "Cancel", pa_ok: "OK", pa_done_today: "Done today",
@@ -109,6 +110,7 @@ const I18N_KIDS = {
     return_home_lbl: "Nach \"Fertig!\" zum Startbildschirm",
     bday_banner: "🎂 Heute hat {name} Geburtstag! {name} wird {age}!",
     bday_title: "Alles Gute zum Geburtstag, {name}!", bday_age: "Du bist jetzt {age}!", bday_go: "Los geht's!",
+    praise_title: "Jemand ist stolz auf dich!", praise_from: "von {name}", praise_ok: "Juhu!", praise_tag: "Neues Lob für dich!",
     free_today: "Heute hast du frei! 🎉",
     levelup_title: "Level-Up 🏆", levelup_new: "Neu – das darfst du jetzt:",
     levelup_none: "Neue Abenteuer warten auf dich!",
@@ -119,7 +121,7 @@ const I18N_KIDS = {
     from_time: "ab {t}", countdown: "noch {n} min", window_over: "Heute vorbei – morgen neue Chance",
     until_time: "bis {t}",
     err_not_yet: "Noch nicht dran! Die Aufgabe startet etwas später.",
-    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!",
+    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!", err_together_not_allowed: "Diese Aufgabe machst du allein.",
     steps_left: "Noch {n} Schritt(e) abhaken",
     pa_skip: "Heute aussetzen", pa_postpone: "Zurückstellen", pa_complete: "Für {name} erledigen", pa_undo: "Rückgängig",
     pa_cancel: "Abbrechen", pa_ok: "OK", pa_done_today: "Heute erledigt",
@@ -191,6 +193,9 @@ class TaskOrganizerKids extends HTMLElement {
     this.birthdayLevelup = {};
     this.wallet = {};
     this.redemptions = {};
+    this.praise = [];
+    this._praiseId = null;        // praise currently shown in the overlay
+    this._praiseDone = new Set(); // praise ids already shown/marked this session
     this._shop = false;           // shop panel open inside the kid view
     this._config = {};
     this._hass = null;
@@ -428,6 +433,7 @@ class TaskOrganizerKids extends HTMLElement {
       this.birthdayLevelup = data.birthday_levelup || {};
       this.wallet = data.wallet || {};
       this.redemptions = data.redemptions || {};
+      this.praise = Array.isArray(data.praise) ? data.praise : [];
       this._fetched = true;
       this._render();
     }).catch((err) => console.error("TaskOrganizer Kids: could not load data", err));
@@ -640,10 +646,67 @@ class TaskOrganizerKids extends HTMLElement {
       kid.isBirthday = this._isBirthday(kid);
       kid.duties = this._duties(kid);
       kid.pendingCount = this._pendingFor(id).length;
+      kid.unseenPraise = this._unseenPraise(id);
       return kid;
     });
     kids.sort((a, b) => a.name.localeCompare(b.name, (this._hass && this._hass.language) || undefined));
     return kids;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Praise from the parents (sticker + message, no points)
+  // ---------------------------------------------------------------------------
+
+  /** Unseen praise of ONE kid, oldest first (never shown on other kids' tiles). */
+  _unseenPraise(kidId) {
+    return (this.praise || [])
+      .filter(p => p.kid_id === kidId && !p.seen && !this._praiseDone.has(p.id))
+      .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+  }
+
+  /** Shows the next unseen praise of the logged-in kid as a friendly overlay (once the view is open). */
+  _maybeShowPraise() {
+    if (this._praiseId || this._bdayKid || this._celebrating || !this._session || this._view !== 'kid') return;
+    const next = this._unseenPraise(this._session.kidId)[0];
+    const fx = this.shadowRoot.getElementById('fx');
+    if (!next || !fx) return;
+    const kid = this._kids().find(k => k.id === this._session.kidId);
+    this._praiseId = next.id;
+    const layer = document.createElement('div');
+    layer.className = 'praise-layer';
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.innerHTML = `
+      <div class="praise-card" style="--kc:${kid ? kid.color : '#E91E63'}">
+        <div class="praise-sticker" aria-hidden="true">${escKids(next.sticker || '❤️')}</div>
+        <div class="praise-msg">${escKids(next.message || this.localize('praise_title'))}</div>
+        ${next.from_name ? `<div class="praise-from">${escKids(this.localize('praise_from', { name: next.from_name }))}</div>` : ''}
+        <button class="btn btn-done praise-go" data-action="praise-close">${escKids(this.localize('praise_ok'))} 🎉</button>
+      </div>`;
+    fx.appendChild(layer);
+    this._playPraise();
+  }
+
+  _removePraiseLayer() {
+    const layer = this.shadowRoot.querySelector('.praise-layer');
+    if (layer) layer.remove();
+    this._praiseId = null;
+  }
+
+  /** Closes the overlay, marks the praise as seen in the backend and shows the next one. */
+  _closePraise() {
+    const id = this._praiseId;
+    const session = this._session;
+    this._removePraiseLayer();
+    if (id) this._praiseDone.add(id);
+    if (id && session && this._hass) {
+      const payload = session.mine
+        ? { type: 'task_organizer/my_praise_seen', praise_id: id }
+        : { type: 'task_organizer/kid_praise_seen', kid_id: session.kidId, praise_id: id };
+      if (!session.mine && session.pin) payload.pin = session.pin;
+      this._hass.callWS(payload).then(() => this._fetchData()).catch((err) => console.error("TaskOrganizer Kids: could not mark praise as seen", err));
+    }
+    this._maybeShowPraise();
   }
 
   // ---------------------------------------------------------------------------
@@ -913,7 +976,10 @@ class TaskOrganizerKids extends HTMLElement {
       this._render();
       return;
     }
-    this._closeBirthday();
+    this._bdayKid = null;
+    this._stopBirthday();
+    this._removeBirthdayLayer();
+    this._removePraiseLayer();
     this._view = 'home';
     this._pendingKid = null;
     this._pin = '';
@@ -974,6 +1040,7 @@ class TaskOrganizerKids extends HTMLElement {
     else if (action === 'claim') this._claim(el.dataset.task);
     else if (action === 'complete') this._complete(el.dataset.task);
     else if (action === 'bday-close') this._closeBirthday();
+    else if (action === 'praise-close') this._closePraise();
     else if (action === 'pa-skip') this._openConfirm('skip', el.dataset.task);
     else if (action === 'pa-complete') this._openConfirm('complete', el.dataset.task);
     else if (action === 'pa-undo') this._openConfirm('undo', null, el.dataset.id);
@@ -1169,6 +1236,11 @@ class TaskOrganizerKids extends HTMLElement {
   // Doing a task together: pick the helpers, each one confirms with the own PIN
   // ---------------------------------------------------------------------------
 
+  /** Whether the task may be done together (field missing -> bonus/auftrag yes, basis no). */
+  _allowTogether(task) {
+    return task.allow_together === undefined || task.allow_together === null ? this._category(task) !== 'basis' : !!task.allow_together;
+  }
+
   /** Other kids who may help with a task (old enough; the assignment does not matter). */
   _helperCandidates(task, kid) {
     return this._kids().filter(k => k.id !== kid.id && this._oldEnough(task, k));
@@ -1333,6 +1405,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._bdayKid = kid && kid.isBirthday ? kidId : null;
     this._render();
     if (this._bdayKid) this._startBirthday();
+    else this._maybeShowPraise();
   }
 
   /**
@@ -1369,6 +1442,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._bdayKid = null;
     this._stopBirthday();
     this._removeBirthdayLayer();
+    this._maybeShowPraise();
   }
 
   _pinPress(digit) {
@@ -1688,6 +1762,31 @@ class TaskOrganizerKids extends HTMLElement {
     } catch (err) { /* sound is optional */ }
   }
 
+  /** Three soft rising notes for a new praise (sine, quiet). */
+  _playPraise() {
+    if (this._config.sound === false) return;
+    try {
+      this._ensureAudio();
+      const ctx = this._audio;
+      if (!ctx) return;
+      const t0 = ctx.currentTime + 0.05;
+      [659.25, 783.99, 1046.5].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const t = t0 + i * 0.16;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.14, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.65);
+      });
+    } catch (err) { /* sound is optional */ }
+  }
+
   /** "Happy Birthday to You" (public domain melody) generated with WebAudio. */
   _playBirthday() {
     this._stopBirthday();
@@ -1772,6 +1871,7 @@ class TaskOrganizerKids extends HTMLElement {
       if (dots) dots.classList.add('shake');
     }
     this._updateScrollHints();
+    if (this._fetched && this._isMine() && this._session) this._maybeShowPraise();
   }
 
   /** Marks columns that have more content below (shows a fade + bouncing arrow). */
@@ -1854,7 +1954,8 @@ class TaskOrganizerKids extends HTMLElement {
           <div class="pts">${this._pointsLabel(kid)}</div>
           ${this._renderGoalBar(kid)}
           <div class="badges">${badge}${waiting}</div>
-        </button>`;
+          ${kid.unseenPraise.length ? `<span class="praise-tag" role="img" aria-label="${escKids(this.localize('praise_tag'))}">${escKids(kid.unseenPraise[0].sticker || '❤️')}</span>` : ''}
+        </button>`
     }).join('');
     const banners = kids.filter(k => k.isBirthday).map(k =>
       `<div class="bday-banner" style="--kc:${k.color}">${escKids(this.localize('bday_banner', { name: k.name, age: k.age === null ? '' : k.age }))}</div>`).join('');
@@ -2099,7 +2200,7 @@ class TaskOrganizerKids extends HTMLElement {
       // "Fertig!" only once every required step is ticked (optional steps never block)
       const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
       action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
-      if (!this._isMine() && this._helperCandidates(task, kid).length) {
+      if (!this._isMine() && this._allowTogether(task) && this._helperCandidates(task, kid).length) {
         action += `<button class="btn btn-together" data-action="together" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>👫 ${escKids(this.localize('together'))}</button>`;
       }
       if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
@@ -2181,6 +2282,9 @@ class TaskOrganizerKids extends HTMLElement {
         box-shadow: 0 6px 16px rgba(0,0,0,0.14); transition: transform 0.12s;
       }
       .tile:active { transform: scale(0.97); }
+      .tile { position: relative; }
+      .tile.bday > .praise-tag { position: absolute; z-index: 2; }
+      .praise-tag { position: absolute; top: 8px; right: 12px; font-size: 44px; line-height: 1; animation: kids-bounce 1.4s ease-in-out infinite; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.25)); pointer-events: none; }
       .ring-wrap { position: relative; width: 168px; height: 168px; display: grid; place-items: center; flex: none; }
       .ring-wrap .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
       .ring-wrap .avatar { font-size: 82px; line-height: 1; }
@@ -2308,6 +2412,7 @@ class TaskOrganizerKids extends HTMLElement {
       .sdate select { min-height: 64px; font-size: 26px; font-family: inherit; padding: 0 10px; border-radius: 18px; border: 3px solid var(--k-line); background: var(--k-card); color: var(--k-text); }
       .t-action { flex-direction: column; gap: 8px; align-items: stretch; }
       .btn-together { min-height: 56px; font-size: 22px; background: var(--k-blue); }
+      .btn-together:disabled { background: #9E9E9E; box-shadow: none; }
       .hchips { display: flex; flex-wrap: wrap; gap: 12px; }
       .hchip { position: relative; min-width: 120px; padding: 12px 16px 8px; border-radius: 26px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--k-card); border: 4px solid var(--k-line); }
       .hchip.on { border-color: var(--kc); background: color-mix(in srgb, var(--kc) 22%, var(--k-card)); }
@@ -2402,6 +2507,13 @@ class TaskOrganizerKids extends HTMLElement {
       .bday-title { font-size: 52px; font-weight: 900; line-height: 1.1; }
       .bday-age { font-size: 40px; font-weight: 800; color: var(--k-sub); margin: 8px 0 20px; }
       .bday-go { min-height: 88px; min-width: 240px; font-size: 34px; }
+
+      #fx .praise-layer { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(60,20,40,0.5); }
+      .praise-card { position: relative; text-align: center; padding: 28px 48px 32px; border-radius: 48px; background: var(--k-card); border: 8px solid var(--kc); box-shadow: 0 16px 48px rgba(0,0,0,0.5); animation: kids-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both; max-width: min(760px, 92vw); }
+      .praise-sticker { font-size: 150px; line-height: 1.1; animation: kids-bounce 1.6s ease-in-out infinite; }
+      .praise-msg { font-size: 44px; font-weight: 900; line-height: 1.2; overflow-wrap: anywhere; margin-top: 4px; }
+      .praise-from { font-size: 32px; font-weight: 800; color: var(--k-sub); margin: 10px 0 22px; }
+      .praise-go { min-height: 88px; min-width: 240px; font-size: 34px; }
 
       /* ---------- waiting for approval / private notes ---------- */
       .waiting { flex: none; padding: 10px 14px 12px; border-radius: 24px; border: 3px dashed color-mix(in srgb, var(--k-sub) 70%, transparent); background: color-mix(in srgb, var(--k-sub) 10%, var(--k-card)); }
@@ -2554,13 +2666,19 @@ class TaskOrganizerKids extends HTMLElement {
       :host([narrow]) .celebrate-text .plus { font-size: 56px; }
       :host([narrow]) .celebrate-text .great { font-size: 24px; }
       :host([narrow]) .bday-card { padding: 18px 24px 22px; }
+      :host([narrow]) .praise-card { padding: 18px 24px 22px; }
+      :host([narrow]) .praise-sticker { font-size: 88px; }
+      :host([narrow]) .praise-msg { font-size: 26px; }
+      :host([narrow]) .praise-from { font-size: 20px; margin-bottom: 14px; }
+      :host([narrow]) .praise-go { min-height: 64px; font-size: 24px; }
+      :host([narrow]) .praise-tag { font-size: 32px; top: 4px; right: 6px; }
       :host([narrow]) .bday-cake { font-size: 72px; }
       :host([narrow]) .bday-title { font-size: 30px; }
       :host([narrow]) .bday-age { font-size: 24px; }
       :host([narrow]) #fx .toast { font-size: 17px; padding: 12px 20px; bottom: 16px; }
 
       @media (prefers-reduced-motion: reduce) {
-        .dots.shake, .celebrate-text, .col.has-more::after, .balloon, .bday-card { animation: none; }
+        .dots.shake, .celebrate-text, .col.has-more::after, .balloon, .bday-card, .praise-card, .praise-sticker, .praise-tag { animation: none; }
         .balloon { display: none; }
         .tile, .btn, .key, .back, .sub { transition: none; }
       }

@@ -11,7 +11,7 @@ const I18N_PROTOCOL = {
     entry_saved: "Entry saved!", entry_deleted: "Entry deleted!",
     height_lbl: "Height", width_lbl: "Width", title_lbl: "Title",
     items_per_page_lbl: "Items per Page", filter_by_lbl: "Filter By",
-    type_task: "Task", type_bonus: "Bonus", type_penalty: "Deduction", type_birthday: "Birthday", type_missed: "Missed", type_skipped: "Skipped", type_redeem: "Reward", type_refund: "Refund",
+    type_task: "Task", type_bonus: "Bonus", type_penalty: "Deduction", type_birthday: "Birthday", type_missed: "Missed", type_skipped: "Skipped", type_redeem: "Reward", type_refund: "Refund", type_praise: "Praise",
     undo: "Undo", undo_hover: "Undo completion", confirm_undo: "Points are deducted, the task is open again - without a penalty.", entry_undone: "Entry undone!"
   },
   de: { 
@@ -23,13 +23,13 @@ const I18N_PROTOCOL = {
     entry_saved: "Eintrag gespeichert!", entry_deleted: "Eintrag gelöscht!",
     height_lbl: "Höhe", width_lbl: "Breite", title_lbl: "Titel",
     items_per_page_lbl: "Einträge pro Seite", filter_by_lbl: "Filtern nach",
-    type_task: "Aufgabe", type_bonus: "Bonus", type_penalty: "Abzug", type_birthday: "Geburtstag", type_missed: "Verpasst", type_skipped: "Ausgesetzt", type_redeem: "Belohnung", type_refund: "Erstattung",
+    type_task: "Aufgabe", type_bonus: "Bonus", type_penalty: "Abzug", type_birthday: "Geburtstag", type_missed: "Verpasst", type_skipped: "Ausgesetzt", type_redeem: "Belohnung", type_refund: "Erstattung", type_praise: "Lob",
     undo: "Rückgängig", undo_hover: "Erledigung rückgängig machen", confirm_undo: "Punkte werden abgezogen, Aufgabe ist wieder offen – ohne Abzug.", entry_undone: "Eintrag rückgängig gemacht!"
   }
 };
 
 /** Icons of the history entry types (legacy entries without a type are tasks). */
-const PROTOCOL_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️' };
+const PROTOCOL_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️', praise: '❤️' };
 
 /** Escapes text for safe use inside innerHTML templates. */
 function escProtocol(value) {
@@ -197,7 +197,7 @@ class TaskOrganizerProtocol extends HTMLElement {
     const type = PROTOCOL_TYPE_ICONS[entry.type] ? entry.type : 'task';
     const points = parseFloat(entry.points) || 0;
     // Bonus / deduction entries are named by their reason; tasks show the reason as an extra line
-    const name = (type === 'bonus' || type === 'penalty') ? (entry.reason || entry.task_name) : entry.task_name;
+    const name = (type === 'bonus' || type === 'penalty' || type === 'praise') ? (entry.reason || entry.task_name) : entry.task_name;
     const extra = (type === 'task' || type === 'birthday' || type === 'skipped') && entry.reason ? entry.reason : '';
     const label = this.localize('type_' + type);
     return `
@@ -209,7 +209,7 @@ class TaskOrganizerProtocol extends HTMLElement {
           <span class="meta">${new Date(entry.timestamp).toLocaleString()} • ${escProtocol(this.users[entry.user_id] || this.localize('unknown'))}</span>
         </div>
         <div class="actions">
-          <span class="points-badge ${points < 0 ? 'neg' : ''}">${type === 'missed' || type === 'skipped' ? '0' : points < 0 ? '−' + Math.abs(points) : '+' + points}</span>
+          <span class="points-badge ${points < 0 ? 'neg' : ''}">${type === 'praise' ? escProtocol(entry.sticker || '❤️') : type === 'missed' || type === 'skipped' ? '0' : points < 0 ? '−' + Math.abs(points) : '+' + points}</span>
           ${type === 'task' && this._canUndo() ? `<button class="action-btn btn-undo" data-id="${escProtocol(entry.id)}" title="${escProtocol(this.localize('undo_hover'))}" aria-label="${escProtocol(this.localize('undo'))}"><ha-icon icon="mdi:undo-variant"></ha-icon></button>` : ''}
           <button class="action-btn btn-edit" data-id="${escProtocol(entry.id)}" title="${this.localize('edit_hover')}"><ha-icon icon="mdi:pencil"></ha-icon></button>
           <button class="action-btn btn-delete" data-id="${escProtocol(entry.id)}" title="${this.localize('delete_hover')}"><ha-icon icon="mdi:delete"></ha-icon></button>

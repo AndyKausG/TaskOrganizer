@@ -29,6 +29,7 @@ EVENT_KID_BIRTHDAY = "task_organizer_kid_birthday"
 EVENT_TASK_REMINDER = "task_organizer_task_reminder"
 EVENT_REWARD_REQUESTED = "task_organizer_reward_requested"
 EVENT_REWARD_RESOLVED = "task_organizer_reward_resolved"
+EVENT_PRAISE = "task_organizer_praise"
 
 # Event fired by the Home Assistant companion app when a notification action is tapped
 EVENT_MOBILE_APP_ACTION = "mobile_app_notification_action"
@@ -81,6 +82,9 @@ WS_TYPE_SET_REWARDS = "task_organizer/set_rewards"
 WS_TYPE_KID_REDEEM = "task_organizer/kid_redeem"
 WS_TYPE_KID_SET_GOAL = "task_organizer/kid_set_goal"
 WS_TYPE_REDEMPTION_RESOLVE = "task_organizer/redemption_resolve"
+WS_TYPE_SEND_PRAISE = "task_organizer/send_praise"
+WS_TYPE_KID_PRAISE_SEEN = "task_organizer/kid_praise_seen"
+WS_TYPE_MY_PRAISE_SEEN = "task_organizer/my_praise_seen"
 
 # Service Names
 SERVICE_RESET_MONTHLY_POINTS = "reset_monthly_points"
