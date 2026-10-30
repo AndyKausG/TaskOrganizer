@@ -55,7 +55,8 @@ const I18N_KIDS = {
     from_time: "from {t}", countdown: "{n} min to go", window_over: "Over for today - new chance tomorrow",
     until_time: "until {t}",
     err_not_yet: "Not yet! This task starts a little later.",
-    err_too_late: "Too late for today. New chance tomorrow!"
+    err_too_late: "Too late for today. New chance tomorrow!",
+    replaced_today: "Today: {a} instead of {b}"
   },
   de: {
     title: "Familien-Aufgaben", loading: "Lade...",
@@ -93,7 +94,8 @@ const I18N_KIDS = {
     from_time: "ab {t}", countdown: "noch {n} min", window_over: "Heute vorbei – morgen neue Chance",
     until_time: "bis {t}",
     err_not_yet: "Noch nicht dran! Die Aufgabe startet etwas später.",
-    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!"
+    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!",
+    replaced_today: "Heute: {a} statt {b}"
   }
 };
 
@@ -545,7 +547,9 @@ class TaskOrganizerKids extends HTMLElement {
         points: parseFloat(this.points[id]) || 0,
         goal: parseFloat(goals[id]) || 0
       };
-      kid.pct = kid.goal > 0 ? Math.min(100, Math.round((kid.points / kid.goal) * 100)) : 0;
+      // pctRaw may exceed 100 (bonus points): the ring draws further laps on top
+      kid.pctRaw = kid.goal > 0 ? Math.round((kid.points / kid.goal) * 100) : 0;
+      kid.pct = Math.min(100, kid.pctRaw);
       kid.age = this._age(kid);
       kid.isBirthday = this._isBirthday(kid);
       kid.duties = this._duties(kid);
@@ -564,12 +568,56 @@ class TaskOrganizerKids extends HTMLElement {
       String(a.name).localeCompare(String(b.name)));
   }
 
-  /** Due/overdue basis + auftrag tasks assigned to the kid (and age appropriate). */
+  /**
+   * The open task of the same kid that makes `task` obsolete today (e.g. the
+   * thorough room clean replaces the room blitz), or null. Mirrors
+   * is_replaced() of the backend: `replaced_by_key` is a wizard key prefix.
+   */
+  _replacedBy(task) {
+    const key = task.replaced_by_key;
+    if (!key || typeof key !== 'string') return null;
+    const mine = this._assignees(task);
+    return Object.values(this.tasks).find(o =>
+      o !== task && String(o.wizard_key || '').startsWith(`${key}:`) &&
+      this._assignees(o).some(a => mine.includes(a)) && this._isOpen(o)) || null;
+  }
+
+  /** Order of the time windows: open (0) before "from HH:MM" (1) before over for today (2). */
+  _windowRank(task) {
+    const state = this._window(task).state;
+    return state === 'open' ? 0 : (state === 'not_yet' ? 1 : 2);
+  }
+
+  /**
+   * Due/overdue basis + auftrag tasks assigned to the kid (and age appropriate).
+   * Replaced tasks are left out; currently available duties come first, then
+   * the ones that start later (by start time), then the ones over for today.
+   */
   _duties(kid) {
-    return this._sortTasks(Object.values(this.tasks).filter(t =>
+    const list = this._sortTasks(Object.values(this.tasks).filter(t =>
       ['basis', 'auftrag'].includes(this._category(t)) &&
       this._assignees(t).includes(kid.id) &&
-      this._isOpen(t) && !this._expired(t) && this._oldEnough(t, kid)));
+      this._isOpen(t) && !this._expired(t) && this._oldEnough(t, kid) && !this._replacedBy(t)));
+    const start = (t) => this._hhmm(t.available_from) || 0;
+    const rank = new Map(list.map(t => [t, this._windowRank(t)]));
+    // stable sort: inside a group the category / due date / name order stays
+    return list.sort((a, b) => (rank.get(a) - rank.get(b)) ||
+      (rank.get(a) === 1 ? start(a) - start(b) : 0));
+  }
+
+  /** Muted lines for today's replaced duties: [{ text }] (kid view only). */
+  _replacedLines(kid) {
+    return Object.values(this.tasks).filter(t =>
+      ['basis', 'auftrag'].includes(this._category(t)) &&
+      this._assignees(t).includes(kid.id) && this._isOpen(t) && !this._expired(t)).map(t => {
+      const by = this._replacedBy(t);
+      if (!by) return null;
+      const short = (task) => {
+        const name = String(task.name || '');
+        return name.endsWith(` ${kid.name}`) ? name.slice(0, -(kid.name.length + 1)) : name;
+      };
+      return this.localize('replaced_today', { a: short(by), b: short(t) });
+    }).filter(Boolean);
   }
 
   /** Due bonus tasks the kid may do (unassigned or assigned to the kid, old enough). */
@@ -1130,21 +1178,43 @@ class TaskOrganizerKids extends HTMLElement {
     });
   }
 
-  /** SVG progress ring around the avatar. */
+  /**
+   * SVG progress ring around the avatar. Above 100 % further laps are drawn on
+   * top of the full ring in darker shades (like Apple's activity rings) with a
+   * soft shadow at the round end so the overlap stays visible; a third lap is
+   * darker still, further laps stay full.
+   */
   _ring(kid, size, stroke) {
+    const r = KIDS_RING_RADIUS;
     const dash = KIDS_RING_CIRCUMFERENCE;
-    const offset = dash * (1 - kid.pct / 100);
+    const arc = (fraction, color) => `<circle cx="60" cy="60" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+          stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${dash * (1 - fraction)}" transform="rotate(-90 60 60)"/>`;
+    const shadow = (fraction) => {
+      const a = 2 * Math.PI * fraction - Math.PI / 2;
+      return `<circle cx="${(60 + r * Math.cos(a)).toFixed(2)}" cy="${(60 + r * Math.sin(a)).toFixed(2)}" r="${stroke / 2}" fill="#000" fill-opacity="0.45" filter="url(#kring-shadow)"/>`;
+    };
+    let laps = '';
+    if (kid.goal > 0) {
+      const raw = Math.max(0, kid.pctRaw === undefined ? kid.pct : kid.pctRaw) / 100;
+      const shades = ['var(--kc)', 'color-mix(in srgb, var(--kc) 68%, #000)', 'color-mix(in srgb, var(--kc) 42%, #000)'];
+      laps = arc(Math.min(1, raw), shades[0]);
+      for (let lap = 1; lap < 3 && raw > lap; lap++) {
+        const fraction = Math.min(1, raw - lap);
+        laps += shadow(fraction) + arc(fraction, shades[lap]);
+      }
+    }
     return `
       <svg class="ring" viewBox="0 0 120 120" width="${size}" height="${size}" aria-hidden="true">
-        <circle cx="60" cy="60" r="${KIDS_RING_RADIUS}" fill="none" stroke="color-mix(in srgb, var(--kc) 22%, transparent)" stroke-width="${stroke}"/>
-        ${kid.goal > 0 ? `<circle cx="60" cy="60" r="${KIDS_RING_RADIUS}" fill="none" stroke="var(--kc)" stroke-width="${stroke}"
-          stroke-linecap="round" stroke-dasharray="${dash}" stroke-dashoffset="${offset}" transform="rotate(-90 60 60)"/>` : ''}
+        <defs><filter id="kring-shadow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${(stroke / 5).toFixed(1)}"/></filter></defs>
+        <circle cx="60" cy="60" r="${r}" fill="none" stroke="color-mix(in srgb, var(--kc) 22%, transparent)" stroke-width="${stroke}"/>
+        ${laps}
       </svg>`;
   }
 
   _pointsLabel(kid) {
+    const over = kid.goal > 0 && kid.pctRaw > 100 ? `<span class="pct-over">${kid.pctRaw} %</span>` : '';
     return kid.goal > 0
-      ? `⭐ ${fmtKids(kid.points)} <small>/ ${fmtKids(kid.goal)}</small>`
+      ? `⭐ ${fmtKids(kid.points)} <small>/ ${fmtKids(kid.goal)}</small>${over}`
       : `⭐ ${fmtKids(kid.points)}`;
   }
 
@@ -1278,7 +1348,7 @@ class TaskOrganizerKids extends HTMLElement {
     const dutyHtml = (duties.length
       ? duties.map(t => this._renderTask(t, kid, 'duty', persons)).join('')
       : `<div class="empty-state small">🎉 ${escKids(this.localize('no_tasks'))}</div>`)
-      + this._renderWaiting(waiting) + this._renderPrivate(kid);
+      + this._renderReplaced(kid) + this._renderWaiting(waiting) + this._renderPrivate(kid);
     const bonusHtml = bonus.length
       ? bonus.map(t => this._renderTask(t, kid, this._bonusLocked(t, kid) ? 'locked' : 'bonus', persons)).join('')
       : `<div class="empty-state small">😴 ${escKids(this.localize('no_bonus'))}</div>`;
@@ -1311,6 +1381,11 @@ class TaskOrganizerKids extends HTMLElement {
           </section>
         </div>
       </div>`;
+  }
+
+  /** Small muted lines for duties that are replaced today ("Today: thorough room clean instead of room blitz"). */
+  _renderReplaced(kid) {
+    return this._replacedLines(kid).map(text => `<div class="replaced-note">${escKids(text)}</div>`).join('');
   }
 
   /** Birthday strip of the kid view: level-up card and "off duty today" note. */
@@ -1488,6 +1563,7 @@ class TaskOrganizerKids extends HTMLElement {
       .ring-wrap.small .avatar { font-size: 52px; }
       .name { font-size: 36px; font-weight: 800; line-height: 1.1; text-align: center; max-width: 100%; overflow-wrap: anywhere; }
       .pts { font-size: 30px; font-weight: 800; }
+      .pct-over { display: block; font-size: 0.55em; font-weight: 800; color: var(--k-sub); line-height: 1.1; }
       .pts small, .fam-num small, .kv-pts small { font-size: 0.7em; font-weight: 700; color: var(--k-sub); }
       .badge { min-height: 48px; padding: 8px 18px; border-radius: 28px; font-size: 23px; text-align: center; font-weight: 800; display: flex; align-items: center; }
       .badge.open { background: #C62828; color: #fff; }
@@ -1552,6 +1628,7 @@ class TaskOrganizerKids extends HTMLElement {
       .btn-done { background: var(--k-good); }
       .btn-claim { background: var(--k-blue); }
       .state-chip { width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; line-height: 1; }
+      .replaced-note { margin: 4px 4px 10px; font-size: 18px; font-weight: 700; color: var(--k-sub); opacity: 0.85; }
       .t-note { margin-top: 4px; font-size: 22px; font-weight: 800; color: var(--k-sub); }
       .t-note.locked { color: var(--k-text); }
       .state-chip.locked { background: #455A64; color: #fff; }
@@ -1702,6 +1779,7 @@ class TaskOrganizerKids extends HTMLElement {
       :host([narrow]) .t-meta { font-size: 15px; gap: 4px 8px; margin-top: 3px; }
       :host([narrow]) .age, :host([narrow]) .mine-tag { font-size: 13px; padding: 1px 8px; }
       :host([narrow]) .t-note { font-size: 15px; }
+      :host([narrow]) .replaced-note { font-size: 14px; margin: 2px 2px 8px; }
       :host([narrow]) .sub { min-height: 46px; padding: 6px 10px; font-size: 16px; border-width: 2px; border-radius: 16px; gap: 10px; }
       :host([narrow]) .sub .box { width: 30px; height: 30px; border-width: 3px; border-radius: 9px; font-size: 20px; }
       :host([narrow]) .party { flex-direction: column; max-height: none; gap: 8px; }
