@@ -36,7 +36,12 @@ from .const import (
     EVENT_APPROVAL_REQUESTED,
     EVENT_APPROVAL_RESOLVED,
     EVENT_KID_BIRTHDAY,
+    EVENT_TASK_REMINDER,
+    EVENT_REWARD_REQUESTED,
+    EVENT_REWARD_RESOLVED,
     EVENT_MOBILE_APP_ACTION,
+    ACTION_REWARD_APPROVE,
+    ACTION_REWARD_REJECT,
     ACTION_APPROVE,
     ACTION_NOT_DONE,
     ACTION_CHEAT,
@@ -74,6 +79,14 @@ from .const import (
     WS_TYPE_SET_PARENTS,
     WS_TYPE_PARENT_TASK_ACTION,
     WS_TYPE_PARENT_COMPLETE_FOR,
+    WS_TYPE_MY_COMPLETE_TASK,
+    WS_TYPE_MY_CLAIM_TASK,
+    WS_TYPE_MY_REDEEM,
+    WS_TYPE_MY_SET_GOAL,
+    WS_TYPE_SET_REWARDS,
+    WS_TYPE_KID_REDEEM,
+    WS_TYPE_KID_SET_GOAL,
+    WS_TYPE_REDEMPTION_RESOLVE,
     SERVICE_ADJUST_POINTS,
     SERVICE_ADD_TASK,
     SERVICE_COMPLETE_TASK_BY_NAME,
@@ -89,6 +102,7 @@ from .const import (
 )
 from . import kids_catalog
 from .kids import (
+    ERR_NOT_ELIGIBLE,
     ERR_STEPS_OPEN,
     open_required_steps,
     DEFAULT_CLAIM_MINUTES,
@@ -108,6 +122,16 @@ from .kids import (
     TYPE_PENALTY,
     TYPE_SKIPPED,
     TYPE_TASK,
+    TYPE_REDEEM,
+    TYPE_REFUND,
+    WALLET_ONLY_TYPES,
+    ERR_UNKNOWN_REWARD,
+    ERR_REWARD_INACTIVE,
+    ERR_NOT_ENOUGH,
+    find_reward,
+    normalize_rewards,
+    normalize_reminder_target,
+    wallet_add,
     PinLimiter,
     birthday_bonus_points,
     birthday_duty_free,
@@ -322,11 +346,18 @@ async def ws_get_data(hass: HomeAssistant, connection: websocket_api.ActiveConne
     response_data["settings"] = sanitize_settings(entry.options)
     response_data.setdefault("pending", {})
     response_data.setdefault("birthday_levelup", {})
+    response_data.setdefault("wallet", {})
+    response_data.setdefault("redemptions", {})
     response_data["family_points"] = _family_points(hass)
     response_data["my_role"] = _role(hass, connection.user)
     response_data["ha_users"] = _parent_candidates(hass, entry.options)
     
     connection.send_result(msg["id"], response_data)
+
+
+def _wallet_add(data: dict, uid: str, delta: float) -> float:
+    """Credit / debit the wallet (reward shop balance, never negative, not reset monthly)."""
+    return wallet_add(data.setdefault("wallet", {}), uid, delta)
 
 
 def _family_points(hass: HomeAssistant) -> float:
@@ -414,6 +445,7 @@ def _award_task_points(
     for u_id, pts in users_with_points.items():
         data["points"].setdefault(u_id, 0.0)
         data["points"][u_id] += pts
+        _wallet_add(data, u_id, pts)
 
         history_entry = {
             "id": str(uuid.uuid4()),
@@ -527,6 +559,8 @@ async def ws_complete_task(hass: HomeAssistant, connection: websocket_api.Active
     vol.Optional("requires_routine", default=False): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
+    vol.Optional("reminder_at"): _TIME_FIELD,
+    vol.Optional("reminder_target"): vol.Any(None, str),
     vol.Required("icon"): str,
     vol.Optional("custom_due_date"): vol.Any(str, None),
     vol.Optional("paused_until"): vol.Any(str, None),
@@ -566,6 +600,8 @@ async def ws_add_task(hass: HomeAssistant, connection: websocket_api.ActiveConne
         "requires_routine": bool(msg.get("requires_routine", False)),
         "available_from": normalize_time(msg.get("available_from")),
         "available_until": normalize_time(msg.get("available_until")),
+        "reminder_at": normalize_time(msg.get("reminder_at")),
+        "reminder_target": normalize_reminder_target(msg.get("reminder_target")),
         "icon": msg["icon"],
         "due_date": due_date, 
         "paused_until": msg.get("paused_until"),
@@ -595,6 +631,8 @@ async def ws_add_task(hass: HomeAssistant, connection: websocket_api.ActiveConne
     vol.Optional("requires_routine"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
+    vol.Optional("reminder_at"): _TIME_FIELD,
+    vol.Optional("reminder_target"): vol.Any(None, str),
     vol.Optional("icon"): str,
     vol.Optional("custom_due_date"): vol.Any(str, None),
     vol.Optional("paused_until"): vol.Any(str, None),
@@ -637,6 +675,7 @@ async def ws_edit_task(hass: HomeAssistant, connection: websocket_api.ActiveConn
     for key in ("available_from", "available_until"):
         if key in msg:
             task_ref[key] = normalize_time(msg[key])
+    _apply_reminder_fields(task_ref, msg)
 
     if msg.get("custom_due_date"):
         task_ref["due_date"] = dt_util.as_utc(dt_util.parse_datetime(msg["custom_due_date"])).isoformat()
@@ -650,6 +689,17 @@ async def ws_edit_task(hass: HomeAssistant, connection: websocket_api.ActiveConn
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
     connection.send_result(msg["id"], {"success": True})
+
+
+def _apply_reminder_fields(item: dict, msg: dict) -> None:
+    """Take ``reminder_at`` / ``reminder_target`` from an edit message; a new time re-arms today's reminder."""
+    if "reminder_at" in msg:
+        new_at = normalize_time(msg["reminder_at"])
+        if new_at != item.get("reminder_at"):
+            item.pop("reminded_on", None)
+        item["reminder_at"] = new_at
+    if "reminder_target" in msg:
+        item["reminder_target"] = normalize_reminder_target(msg["reminder_target"])
 
 
 @websocket_api.websocket_command({
@@ -701,6 +751,8 @@ async def ws_factory_reset(hass: HomeAssistant, connection: websocket_api.Active
 _PROTECTED_SETTING_KEYS = (
     "pending", "history", "points", "tasks", "templates",
     "birthday_handled", "birthday_levelup", "monthly_history",
+    # Reward shop: wallet / redemptions are runtime data, rewards have set_rewards
+    "wallet", "redemptions", "rewards",
     # Roles are only changed through the admin-only set_parents command
     "parents", "parents_manage",
 )
@@ -736,6 +788,32 @@ async def ws_update_settings(hass: HomeAssistant, connection: websocket_api.Acti
     connection.send_result(msg["id"], {"success": True})
 
 
+def _history_revert(data: dict, entry_type: str | None, uid: str, pts: float, wallet_pts: float | None = None) -> None:
+    """Take back a history entry: wallet always, monthly points unless it is a shop entry.
+
+    ``wallet_pts`` is the amount that actually hit the wallet when it differs
+    from the monthly points (penalties are clamped separately).
+    """
+    _wallet_add(data, uid, -(pts if wallet_pts is None else wallet_pts))
+    if entry_type not in WALLET_ONLY_TYPES and uid in data["points"]:
+        data["points"][uid] = max(0.0, float(data["points"][uid]) - pts)
+
+
+def _wallet_points_of(entry: dict) -> float | None:
+    """Wallet amount of a history entry when it differs from its points, else None."""
+    try:
+        return float(entry["wallet_points"]) if "wallet_points" in entry else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _history_apply(data: dict, entry_type: str | None, uid: str, pts: float) -> None:
+    """Apply a (re-assigned) history entry like ``_history_revert`` in the other direction."""
+    _wallet_add(data, uid, pts)
+    if entry_type not in WALLET_ONLY_TYPES:
+        data["points"][uid] = max(0.0, float(data["points"].get(uid, 0.0)) + pts)
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): WS_TYPE_DELETE_HISTORY_ITEM,
     vol.Required("entry_id"): str,
@@ -755,8 +833,7 @@ async def ws_delete_history_item(hass: HomeAssistant, connection: websocket_api.
         u_id = entry_to_delete["user_id"]
         pts = float(entry_to_delete.get("points", 0))
         
-        if u_id in data["points"]:
-            data["points"][u_id] = max(0.0, float(data["points"][u_id]) - pts)
+        _history_revert(data, entry_to_delete.get("type"), u_id, pts, _wallet_points_of(entry_to_delete))
             
         data["history"] = [item for item in history if item["id"] != entry_id]
         
@@ -792,12 +869,9 @@ async def ws_edit_history_item(hass: HomeAssistant, connection: websocket_api.Ac
         old_u_id = entry["user_id"]
         old_pts = float(entry.get("points", 0))
         
-        if old_u_id in data["points"]:
-            data["points"][old_u_id] = max(0.0, float(data["points"][old_u_id]) - old_pts)
-            
-        if new_user_id not in data["points"]:
-            data["points"][new_user_id] = 0.0
-        data["points"][new_user_id] = max(0.0, data["points"][new_user_id] + new_points)
+        _history_revert(data, entry.get("type"), old_u_id, old_pts, _wallet_points_of(entry))
+        _history_apply(data, entry.get("type"), new_user_id, new_points)
+        entry.pop("wallet_points", None)   # re-applied with the new points
         
         entry["user_id"] = new_user_id
         entry["points"] = new_points
@@ -899,6 +973,8 @@ async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveC
     vol.Optional("requires_routine", default=False): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
+    vol.Optional("reminder_at"): _TIME_FIELD,
+    vol.Optional("reminder_target"): vol.Any(None, str),
     vol.Optional("interval", default=7): int,
     vol.Optional("assignees", default=[]): cv.ensure_list,
     vol.Optional("subtasks", default=[]): cv.ensure_list,
@@ -924,6 +1000,8 @@ async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveC
         "requires_routine": bool(msg.get("requires_routine", False)),
         "available_from": normalize_time(msg.get("available_from")),
         "available_until": normalize_time(msg.get("available_until")),
+        "reminder_at": normalize_time(msg.get("reminder_at")),
+        "reminder_target": normalize_reminder_target(msg.get("reminder_target")),
         "interval": msg.get("interval"),
         "assignees": msg.get("assignees"),
         "subtasks": msg.get("subtasks", []),
@@ -948,6 +1026,8 @@ async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveC
     vol.Optional("requires_routine"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
+    vol.Optional("reminder_at"): _TIME_FIELD,
+    vol.Optional("reminder_target"): vol.Any(None, str),
     vol.Optional("interval"): int,
     vol.Optional("assignees"): cv.ensure_list,
     vol.Optional("subtasks"): cv.ensure_list,
@@ -982,6 +1062,7 @@ async def ws_edit_template(hass: HomeAssistant, connection: websocket_api.Active
     for key in ("available_from", "available_until"):
         if key in msg:
             template_ref[key] = normalize_time(msg[key])
+    _apply_reminder_fields(template_ref, msg)
             
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
@@ -1143,9 +1224,13 @@ def _kid_task_precheck(hass: HomeAssistant, msg: dict) -> tuple[dict | None, dic
     result, settings, kids = _verify_kid(hass, kid_id, msg.get("pin"))
     if not result["success"]:
         return result, None
+    return _task_precheck(hass, kid_id, msg["task_id"], settings, kids)
 
+
+def _task_precheck(hass: HomeAssistant, kid_id: str, task_id: str, settings: dict, kids: dict) -> tuple[dict | None, dict | None]:
+    """Eligibility part of the precheck (the caller has already identified ``kid_id``)."""
     data = hass.data[DOMAIN]["data"]
-    task = data["tasks"].get(msg["task_id"])
+    task = data["tasks"].get(task_id)
     if task is None:
         return {"success": False, "error": ERR_NOT_FOUND}, None
 
@@ -1216,17 +1301,18 @@ async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.Ac
     if error:
         connection.send_result(msg["id"], error)
         return
+    connection.send_result(msg["id"], await _async_kid_complete(hass, msg["task_id"], ctx, msg.get("helpers") or []))
 
+
+async def _async_kid_complete(hass: HomeAssistant, task_id: str, ctx: dict, helpers: list) -> dict:
+    """Complete a task for the identified kid / person (shared by kid_complete_task and my_complete_task)."""
     if open_required_steps(ctx["task"]):
-        connection.send_result(msg["id"], {"success": False, "error": ERR_STEPS_OPEN})
-        return
+        return {"success": False, "error": ERR_STEPS_OPEN}
 
-    helpers = msg.get("helpers") or []
     if helpers:
         error = _verify_helpers(hass, ctx, helpers)
         if error:
-            connection.send_result(msg["id"], error)
-            return
+            return error
     helper_ids = [h["kid_id"] for h in helpers]
     bonus = team_bonus_points(ctx["settings"]) if helpers else 0
 
@@ -1236,25 +1322,23 @@ async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.Ac
     points = round(float(task.get("complexity", 1)), 1)
     task_name = task.get("name")
 
-    profile = (ctx["settings"].get("kids") or {}).get(kid_id) or {}
-    if needs_approval(task, profile, dt_util.now().date()):
-        await _async_request_approval(hass, msg["task_id"], kid_id, points, helper_ids, bonus)
-        connection.send_result(msg["id"], {"success": True, "pending": True, "points": points, "task_name": task_name})
-        return
+    profile = (ctx["settings"].get("kids") or {}).get(kid_id)
+    if profile is not None and needs_approval(task, profile, dt_util.now().date()):
+        await _async_request_approval(hass, task_id, kid_id, points, helper_ids, bonus)
+        return {"success": True, "pending": True, "points": points, "task_name": task_name}
 
     if helpers:
-        success = await _async_complete_task_internal(hass, msg["task_id"], [kid_id] + helper_ids, None, bonus)
+        success = await _async_complete_task_internal(hass, task_id, [kid_id] + helper_ids, None, bonus)
         points = _calculate_points_per_user(points, len(helper_ids) + 1)
     else:
-        success = await _async_complete_task_internal(hass, msg["task_id"], [kid_id], {kid_id: 100})
+        success = await _async_complete_task_internal(hass, task_id, [kid_id], {kid_id: 100})
     if not success:
-        connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
-        return
+        return {"success": False, "error": ERR_NOT_FOUND}
 
     result = {"success": True, "points": points, "task_name": task_name}
     if helpers:
         result["team_bonus"] = bonus
-    connection.send_result(msg["id"], result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1335,6 +1419,10 @@ def _apply_adjustment(
     current = float(data["points"].get(kid_id, 0) or 0)
     applied = round(clamp_adjustment(current, points), 1)
     data["points"][kid_id] = round(current + applied, 1)
+    # The wallet is clamped on its own: a penalty at the start of a month
+    # (monthly points 0) still reduces the saved shop balance.
+    wallet_before = float((data.get("wallet") or {}).get(kid_id, 0) or 0)
+    wallet_applied = round(_wallet_add(data, kid_id, points if points < 0 else applied) - wallet_before, 1)
     entry = {
         "id": str(uuid.uuid4()),
         "task_id": "",
@@ -1350,6 +1438,8 @@ def _apply_adjustment(
         entry["completion_id"] = completion_id     # undone together with the completion
     if applied != points:
         entry["requested_points"] = points
+    if wallet_applied != applied:
+        entry["wallet_points"] = wallet_applied
     data["history"].insert(0, entry)
     _fire_leaderboard_event_if_changed(hass, old_points, data["points"])
     return applied
@@ -1595,6 +1685,8 @@ async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.Acti
             pts = 0.0
         if uid in data["points"]:
             data["points"][uid] = round(max(0.0, float(data["points"][uid]) - pts), 1)
+        wallet_pts = _wallet_points_of(h)
+        _wallet_add(data, uid, -(pts if wallet_pts is None else wallet_pts))
         removed_points[uid] = round(removed_points.get(uid, 0.0) + pts, 1)
     data["history"] = [h for h in history if h.get("id") not in group_ids]
 
@@ -1825,9 +1917,15 @@ async def _async_remove_expired_adhoc(hass: HomeAssistant) -> int:
 # ---- push notification actions -------------------------------------------------
 
 async def _async_handle_push_action(hass: HomeAssistant, action: str) -> None:
-    """Execute ``TO_APPROVE_<id>`` / ``TO_NOTDONE_<id>`` / ``TO_CHEAT_<id>``."""
+    """Execute ``TO_APPROVE_<id>`` / ``TO_NOTDONE_<id>`` / ``TO_CHEAT_<id>`` and ``TO_RAPPROVE_`` / ``TO_RREJECT_``."""
     if DOMAIN not in hass.data:
         return
+    for prefix, approve in ((ACTION_REWARD_APPROVE, True), (ACTION_REWARD_REJECT, False)):
+        if action.startswith(prefix):
+            result = await _async_resolve_redemption(hass, action[len(prefix):], approve)
+            if result is None:
+                _LOGGER.debug("Notification action %s ignored: unknown or already handled id", action)
+            return
     for prefix, mode in ((ACTION_APPROVE, "approve"), (ACTION_NOT_DONE, "not_done"), (ACTION_CHEAT, "cheated")):
         if action.startswith(prefix):
             pending_id = action[len(prefix):]
@@ -1966,7 +2064,10 @@ async def ws_kid_claim_task(hass: HomeAssistant, connection: websocket_api.Activ
     if error:
         connection.send_result(msg["id"], error)
         return
+    connection.send_result(msg["id"], await _async_claim(hass, ctx))
 
+
+async def _async_claim(hass: HomeAssistant, ctx: dict) -> dict:
     claim_minutes = ctx["settings"].get("claim_minutes", DEFAULT_CLAIM_MINUTES)
     if isinstance(claim_minutes, bool) or not isinstance(claim_minutes, (int, float)) or claim_minutes <= 0:
         claim_minutes = DEFAULT_CLAIM_MINUTES
@@ -1979,7 +2080,315 @@ async def ws_kid_claim_task(hass: HomeAssistant, connection: websocket_api.Activ
     data = hass.data[DOMAIN]["data"]
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
-    connection.send_result(msg["id"], {"success": True, "claimed_until": claimed_until})
+    return {"success": True, "claimed_until": claimed_until}
+
+
+# ---------------------------------------------------------------------------
+# Reward shop: rewards, redeem, savings goal, resolve
+# ---------------------------------------------------------------------------
+
+_REDEMPTION_KEEP_DAYS = 60
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_SET_REWARDS,
+    vol.Required("rewards"): list,
+})
+@websocket_api.async_response
+async def ws_set_rewards(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Replace the reward list (admin / manager). Validated, at most 30 rewards."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
+        return
+    rewards = normalize_rewards(msg["rewards"])
+    if rewards is None:
+        connection.send_error(msg["id"], "invalid_rewards", "Invalid reward list")
+        return
+    entry = _get_entry(hass)
+    options = dict(entry.options)
+    options["rewards"] = rewards
+    hass.config_entries.async_update_entry(entry, options=options)
+    connection.send_result(msg["id"], {"success": True, "rewards": rewards})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_REDEEM,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("reward_id"): str,
+})
+@websocket_api.async_response
+async def ws_kid_redeem(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Redeem a reward with the wallet balance (PIN checked)."""
+    result, settings, kids = _verify_kid(hass, msg["kid_id"], msg.get("pin"))
+    if not result["success"]:
+        connection.send_result(msg["id"], result)
+        return
+    connection.send_result(msg["id"], await _async_redeem(hass, msg["kid_id"], msg["reward_id"], settings, kids))
+
+
+async def _async_redeem(hass: HomeAssistant, kid_id: str, reward_id: str, settings: dict, kids: dict) -> dict:
+    """Deduct a reward from the wallet and park it for the parents (shared by kid_redeem / my_redeem)."""
+    reward = find_reward(settings.get("rewards"), reward_id)
+    if reward is None:
+        return {"success": False, "error": ERR_UNKNOWN_REWARD}
+    if not reward.get("active", True):
+        return {"success": False, "error": ERR_REWARD_INACTIVE}
+    age = kid_age(kids.get(kid_id), dt_util.now().date())
+    if reward.get("min_age", 0) > 0 and age is not None and age < reward["min_age"]:
+        return {"success": False, "error": ERR_TOO_YOUNG}
+
+    data = hass.data[DOMAIN]["data"]
+    cost = int(reward["cost"])
+    balance = float(data.setdefault("wallet", {}).get(kid_id, 0) or 0)
+    if balance < cost:
+        return {"success": False, "error": ERR_NOT_ENOUGH, "balance": balance}
+
+    # No await between the balance check and the deduction: atomic in the event loop.
+    _wallet_add(data, kid_id, -cost)
+    now = dt_util.utcnow()
+    redemption_id = str(uuid.uuid4())
+    redemptions = data.setdefault("redemptions", {})
+    cutoff = (now - timedelta(days=_REDEMPTION_KEEP_DAYS)).isoformat()
+    for rid in [r for r, v in redemptions.items() if v.get("status") != "pending" and v.get("timestamp", "") < cutoff]:
+        del redemptions[rid]
+    record = {
+        "id": redemption_id, "kid_id": kid_id, "reward_id": reward["id"], "name": reward["name"],
+        "emoji": reward.get("emoji") or "🎁", "cost": cost, "timestamp": now.isoformat(), "status": "pending",
+    }
+    redemptions[redemption_id] = record
+    data["history"].insert(0, {
+        "id": str(uuid.uuid4()), "task_id": "", "task_name": f"{record['emoji']} {record['name']}",
+        "user_id": kid_id, "points": -cost, "timestamp": record["timestamp"], "type": TYPE_REDEEM,
+        "redemption_id": redemption_id, "reward_id": reward["id"],
+    })
+    hass.bus.async_fire(EVENT_REWARD_REQUESTED, {
+        "redemption_id": redemption_id, "kid_id": kid_id, "kid_name": _participant_name(hass, kid_id),
+        "reward_id": reward["id"], "name": record["name"], "emoji": record["emoji"], "cost": cost,
+    })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return {
+        "success": True, "redemption_id": redemption_id, "name": record["name"], "emoji": record["emoji"],
+        "cost": cost, "balance": data["wallet"].get(kid_id, 0),
+    }
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_SET_GOAL,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("reward_id"): vol.Any(None, str),
+})
+@websocket_api.async_response
+async def ws_kid_set_goal(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Set (or clear with ``null``) the savings goal of a kid (PIN checked)."""
+    result, settings, _kids = _verify_kid(hass, msg["kid_id"], msg.get("pin"))
+    if not result["success"]:
+        connection.send_result(msg["id"], result)
+        return
+    connection.send_result(msg["id"], _set_goal(hass, msg["kid_id"], msg["reward_id"], settings))
+
+
+def _set_goal(hass: HomeAssistant, kid_id: str, reward_id: str | None, settings: dict) -> dict:
+    if reward_id is not None and find_reward(settings.get("rewards"), reward_id) is None:
+        return {"success": False, "error": ERR_UNKNOWN_REWARD}
+    kids = copy.deepcopy(settings.get("kids") or {})
+    if reward_id is None:
+        kids[kid_id].pop("goal_reward", None)
+    else:
+        kids[kid_id]["goal_reward"] = reward_id
+    _update_kids(hass, kids)
+    return {"success": True, "goal_reward": reward_id}
+
+
+async def _async_resolve_redemption(hass: HomeAssistant, redemption_id: str, approve: bool) -> dict | None:
+    """Approve (mark done) or reject (refund) a pending redemption; ``None`` if unknown / handled."""
+    data = hass.data[DOMAIN]["data"]
+    record = data.get("redemptions", {}).get(redemption_id)
+    if record is None or record.get("status") != "pending":
+        return None
+    # Status flipped before any await: idempotent for racing card / push taps.
+    record["status"] = "done" if approve else "rejected"
+    record["resolved_at"] = dt_util.utcnow().isoformat()
+    if not approve:
+        cost = float(record.get("cost", 0))
+        _wallet_add(data, record["kid_id"], cost)
+        label = "Zurückerstattet: " if _lang(hass) == "de" else "Refunded: "
+        data["history"].insert(0, {
+            "id": str(uuid.uuid4()), "task_id": "", "task_name": f"{record.get('emoji', '')} {record.get('name', '')}".strip(),
+            "user_id": record["kid_id"], "points": cost, "timestamp": record["resolved_at"], "type": TYPE_REFUND,
+            "redemption_id": redemption_id, "reason": label + str(record.get("name", "")),
+        })
+    hass.bus.async_fire(EVENT_REWARD_RESOLVED, {
+        "redemption_id": redemption_id, "result": "approved" if approve else "rejected",
+        "kid_id": record["kid_id"], "kid_name": _participant_name(hass, record["kid_id"]),
+        "name": record.get("name"), "emoji": record.get("emoji"), "cost": record.get("cost"),
+    })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return record
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_REDEMPTION_RESOLVE,
+    vol.Required("redemption_id"): str,
+    vol.Required("approve"): bool,
+})
+@websocket_api.async_response
+async def ws_redemption_resolve(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Approve or reject a pending reward redemption (admin / manager / parent)."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
+        return
+    record = await _async_resolve_redemption(hass, msg["redemption_id"], msg["approve"])
+    if record is None:
+        connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
+        return
+    connection.send_result(msg["id"], {"success": True, "status": record["status"]})
+
+
+# ---------------------------------------------------------------------------
+# "My tasks" on the own device: the participant comes from the websocket user
+# ---------------------------------------------------------------------------
+
+def _my_participant(hass: HomeAssistant, connection) -> str | None:
+    """Participant id of the calling user: the user id of the person entity linked to them.
+
+    Never taken from the payload; ``None`` when no person is linked to the user.
+    """
+    user = connection.user
+    uid = getattr(user, "id", None)
+    if not uid or getattr(user, "system_generated", False) or not getattr(user, "is_active", True):
+        return None
+    for state in hass.states.async_all("person"):
+        if state.attributes.get("user_id") == uid:
+            return uid
+    return None
+
+
+def _my_context(hass: HomeAssistant, connection, msg: dict, with_task: bool = True):
+    """``(error_result, ctx)``: the caller is identified, no PIN (the HA login is the proof)."""
+    pid = _my_participant(hass, connection)
+    if pid is None:
+        return {"success": False, "error": ERR_UNKNOWN_KID}, None
+    settings = _get_entry(hass).options
+    kids = settings.get("kids") or {}
+    if not with_task:
+        return None, {"kid_id": pid, "settings": settings, "kids": kids}
+    error, ctx = _task_precheck(hass, pid, msg["task_id"], settings, kids)
+    if error is None and pid not in kids:
+        # Adults (no kid profile) only get their own assigned tasks, not the
+        # kids' open bonus tasks.
+        assignees = ctx["task"].get("assignees") or []
+        if isinstance(assignees, str):
+            assignees = [assignees]
+        if pid not in assignees:
+            return {"success": False, "error": ERR_NOT_ELIGIBLE}, None
+    return error, ctx
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_COMPLETE_TASK,
+    vol.Required("task_id"): str,
+})
+@websocket_api.async_response
+async def ws_my_complete_task(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Complete a task as the calling user (same checks as ``kid_complete_task``, no PIN, no helpers)."""
+    error, ctx = _my_context(hass, connection, msg)
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_kid_complete(hass, msg["task_id"], ctx, []))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_CLAIM_TASK,
+    vol.Required("task_id"): str,
+})
+@websocket_api.async_response
+async def ws_my_claim_task(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Reserve a bonus task for the calling user."""
+    error, ctx = _my_context(hass, connection, msg)
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_claim(hass, ctx))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_REDEEM,
+    vol.Required("reward_id"): str,
+})
+@websocket_api.async_response
+async def ws_my_redeem(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Redeem a reward as the calling user (needs a kid profile)."""
+    error, ctx = _my_context(hass, connection, msg, with_task=False)
+    if error is None and ctx["kid_id"] not in ctx["kids"]:
+        error = {"success": False, "error": ERR_UNKNOWN_KID}
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], await _async_redeem(hass, ctx["kid_id"], msg["reward_id"], ctx["settings"], ctx["kids"]))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_MY_SET_GOAL,
+    vol.Required("reward_id"): vol.Any(None, str),
+})
+@websocket_api.async_response
+async def ws_my_set_goal(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Set / clear the savings goal of the calling user (needs a kid profile)."""
+    error, ctx = _my_context(hass, connection, msg, with_task=False)
+    if error is None and ctx["kid_id"] not in ctx["kids"]:
+        error = {"success": False, "error": ERR_UNKNOWN_KID}
+    if error:
+        connection.send_result(msg["id"], error)
+        return
+    connection.send_result(msg["id"], _set_goal(hass, ctx["kid_id"], msg["reward_id"], ctx["settings"]))
+
+
+# ---------------------------------------------------------------------------
+# Task reminders (checked by the minute timer)
+# ---------------------------------------------------------------------------
+
+async def _async_check_reminders(hass: HomeAssistant) -> int:
+    """Remind once per day about open tasks whose ``reminder_at`` has passed. Returns the count."""
+    if DOMAIN not in hass.data:
+        return 0
+    data = hass.data[DOMAIN]["data"]
+    now = dt_util.now()
+    today = now.date().isoformat()
+    clock = now.strftime("%H:%M")
+    overdue_days = _get_entry(hass).options.get("overdue_days", 5)
+    due = []
+    for task_id, task in data["tasks"].items():
+        at = normalize_time(task.get("reminder_at")) if isinstance(task, dict) else None
+        if not at or clock < at or task.get("reminded_on") == today:
+            continue
+        if not is_open(task, now, overdue_days) or is_expired(task, now) or window_state(task, now) == WINDOW_TOO_LATE:
+            continue
+        task["reminded_on"] = today
+        due.append((task_id, task))
+    if not due:
+        return 0
+    de = _lang(hass) == "de"
+    for task_id, task in due:
+        assignees = _assignee_ids(task)
+        hass.bus.async_fire(EVENT_TASK_REMINDER, {
+            "task_id": task_id, "task_name": task.get("name"), "assignees": assignees,
+            "assignee_names": [_participant_name(hass, a) for a in assignees],
+        })
+        target = normalize_reminder_target(task.get("reminder_target"))
+        if target:
+            service = target.split(".", 1)[1]
+            try:
+                await hass.services.async_call("notify", service, {
+                    "title": "Erinnerung" if de else "Reminder",
+                    "message": f"{task.get('name')} ist noch offen" if de else f"{task.get('name')} is still open",
+                }, blocking=True)
+            except Exception as err:  # unknown service, offline device ...
+                _LOGGER.warning("Reminder for '%s' could not be sent via %s: %s", task.get("name"), target, err)
+    await hass.data[DOMAIN]["store"].async_save(data)
+    return len(due)
 
 
 # ---------------------------------------------------------------------------
@@ -2777,6 +3186,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault("pending", {})
     data.setdefault("birthday_handled", {})
     data.setdefault("birthday_levelup", {})
+    # Reward shop: the wallet survives the monthly reset. First start with the
+    # shop: already earned points of the month become the starting balance.
+    if not isinstance(data.get("wallet"), dict):
+        data["wallet"] = {
+            uid: round(max(0.0, float(pts or 0)), 1) for uid, pts in (data.get("points") or {}).items()
+        }
+    data.setdefault("redemptions", {})
 
     # Additive migration (kids mode): every task/template gets a valid
     # category ("basis" | "bonus" | "auftrag") and a min_age. Nothing is removed.
@@ -2811,6 +3227,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def _adhoc_check(now=None):
         """Remove expired ad-hoc bonus tasks (at least every minute)."""
         await _async_remove_expired_adhoc(hass)
+        await _async_check_reminders(hass)
 
     await _async_remove_expired_adhoc(hass)
 
@@ -2861,6 +3278,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "monthly_history": {}, "current_month": dt_util.now().strftime("%Y-%m"), 
             "current_period_start": dt_util.utcnow().isoformat(),
             "templates": {}, "pending": {}, "birthday_handled": {}, "birthday_levelup": {},
+            "wallet": {}, "redemptions": {},
         }
         hass.data[DOMAIN]["data"] = new_data
         
@@ -2901,6 +3319,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if u_id not in data["points"]: 
                 data["points"][u_id] = 0
             data["points"][u_id] += points_per_user
+            _wallet_add(data, u_id, points_per_user)
             
             history_entry = {
                 "id": str(uuid.uuid4()), 
@@ -3011,6 +3430,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 call.data["available_until"] if "available_until" in call.data
                 else (template.get("available_until") if template else None)
             ),
+            "reminder_at": normalize_time(template.get("reminder_at") if template else None),
+            "reminder_target": normalize_reminder_target(template.get("reminder_target") if template else None),
             "icon": call.data.get("icon") or (template.get("icon", "mdi:broom") if template else "mdi:broom"),
             "due_date": dt_util.utcnow().isoformat(), 
             "paused_until": None,
@@ -3289,6 +3710,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_set_parents)
     websocket_api.async_register_command(hass, ws_parent_task_action)
     websocket_api.async_register_command(hass, ws_parent_complete_for)
+    websocket_api.async_register_command(hass, ws_my_complete_task)
+    websocket_api.async_register_command(hass, ws_my_claim_task)
+    websocket_api.async_register_command(hass, ws_my_redeem)
+    websocket_api.async_register_command(hass, ws_my_set_goal)
+    websocket_api.async_register_command(hass, ws_set_rewards)
+    websocket_api.async_register_command(hass, ws_kid_redeem)
+    websocket_api.async_register_command(hass, ws_kid_set_goal)
+    websocket_api.async_register_command(hass, ws_redemption_resolve)
     
     # Register static path for frontend cards
     frontend_path = hass.config.path(f"custom_components/{DOMAIN}/www")

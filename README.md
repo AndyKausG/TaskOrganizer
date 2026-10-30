@@ -183,6 +183,7 @@ sound: true                # Cheerful sounds generated with WebAudio (Default: t
 show_family_goal: true     # Show the "family rocket" progress bar (Default: true)
 show_bonus_board: true     # Show the bonus board with currently open bonus tasks (Default: true)
 return_home_after_done: true  # Return to the home screen after "Done!" (Default: true)
+mode: family               # "family" = shared tablet with tiles and PIN (Default), "mine" = own device, see "My tasks"
 ```
 On a phone (card width below 700 px, measured on the card itself, not on the screen) the card switches to a compact layout: two kid tiles per row, one column in the kid view (own tasks first, bonus below), an icon-only back button and a full-width "Done!" button below the subtasks. The tablet layout is unchanged. On a tall panel the tiles keep their natural height (at most about 380 px) and the family rocket and the bonus board follow directly below.
 
@@ -370,6 +371,66 @@ action:
       message: clear_notification
       data:
         tag: "to_{{ trigger.event.data.pending_id }}"
+```
+
+### Reward shop
+
+Kids can spend their points on rewards chosen by the parents.
+
+* **Wallet:** every point a kid earns (task, approval, team bonus, birthday bonus, manual bonus, "complete for kid") is also credited to a per-kid wallet (`wallet` in `get_data`). Penalties, undo and deleting/editing history entries debit it (never below 0). The wallet is **not** reset at the monthly reset, so the monthly points, goals and family goal work as before. On the first start with the shop the wallet is initialised with the current month points.
+* **Rewards:** settings card or parents card (admins and managers: "Manage rewards"): emoji, name, cost (1-1000), minimum age and active flag, at most 30. "Load suggestions" adds a starter set. Command `task_organizer/set_rewards`; `update_settings` and imports never touch rewards, wallet or redemptions.
+* **Kids card:** a "🛍️ Shop" button in the kid view (hidden without active rewards) opens the shop: balance, rewards as cards (affordable ones highlighted, others with progress "noch 23 ⭐"), "Einlösen" with confirmation and a "⭐ Sparziel" toggle. The savings goal is shown as a small bar on the home tile. Redeeming (`kid_redeem`, PIN checked) deducts at once and creates a pending redemption.
+* **Parents card:** section "Einlösungen" with "✅ Einlösen" (`redemption_resolve`, `approve: true`, marks it done) and "↩️ Ablehnen" (refunds the wallet, history type `refund`). The wallet balance is shown next to the monthly points. Redeem/refund history entries (`redeem`, `refund`) never change the monthly points.
+* **Events:** `task_organizer_reward_requested` (`redemption_id`, `kid_id`, `kid_name`, `reward_id`, `name`, `emoji`, `cost`) and `task_organizer_reward_resolved` (same plus `result`: `approved` | `rejected`).
+
+Actionable notification (`TO_RAPPROVE_<id>` / `TO_RREJECT_<id>`, idempotent like the approval actions):
+
+```yaml
+alias: Ask parents about a reward
+trigger:
+  - platform: event
+    event_type: task_organizer_reward_requested
+action:
+  - service: notify.mobile_app_alexs_phone
+    data:
+      title: "{{ trigger.event.data.kid_name }}: {{ trigger.event.data.emoji }} {{ trigger.event.data.name }}"
+      message: "{{ trigger.event.data.cost }} points spent"
+      data:
+        actions:
+          - action: "TO_RAPPROVE_{{ trigger.event.data.redemption_id }}"
+            title: "✅ Redeem"
+          - action: "TO_RREJECT_{{ trigger.event.data.redemption_id }}"
+            title: "↩️ Decline (refund)"
+```
+
+### My tasks (own device, `mode: mine`)
+
+For a phone or laptop that belongs to one person, set `mode: mine` on the kids card (or tick "My tasks" in the card editor). The card then identifies the viewer by the logged-in Home Assistant user: the person entity whose `user_id` equals the user is the participant. There is no home screen, no tiles and no PIN (the Home Assistant login is the proof).
+
+* **Kid with a kid profile:** the kid view directly: due duties assigned to them, eligible bonus tasks, progress ring and the reward shop (if enabled). Approval rules, spot checks and strict mode apply as usual.
+* **Adult without kid profile:** a plain list of their assigned due tasks (time windows respected), no ring, no shop, no approval.
+* **No person linked to the user:** a hint to link the user to a person (Settings > People).
+
+The card uses the websocket commands `my_complete_task`, `my_claim_task`, `my_redeem` and `my_set_goal`. They take **no** participant in the payload: the participant is always the calling user, so nobody can act for another person. The eligibility checks (assignment, age, time window, steps, routine lock) are the same as for `kid_complete_task`; helpers ("together") are not available. Errors: `unknown_kid` (no person / no kid profile for the user), `not_eligible`, `too_young`, `not_yet`, `too_late`, `steps_open`, `claimed`, `not_enough_points`, ...
+
+### Task reminders
+
+Tasks and templates have the optional fields `reminder_at` (`HH:MM`, local time) and `reminder_target` (`notify.<service>` or empty = only the event). In the task and template editor: switch "Reminder", a time select (15-minute steps) and a select with all `notify.*` services plus "Event only".
+
+The minute timer fires, once per task and day, as soon as the time has passed, the task is due and still open (not paused or expired) and its time window has not ended yet:
+
+* the event `task_organizer_task_reminder` with `task_id`, `task_name`, `assignees` (participant ids) and `assignee_names`;
+* if a target is set, the notify service is called with the title "Erinnerung" / "Reminder" (language of Home Assistant) and the message "<task> ist noch offen" / "<task> is still open". An unknown service is logged as a warning and does not stop anything.
+
+```yaml
+alias: Speak the reminder
+trigger:
+  - platform: event
+    event_type: task_organizer_task_reminder
+action:
+  - service: notify.mobile_app_alexs_phone
+    data:
+      message: "{{ trigger.event.data.task_name }}: {{ trigger.event.data.assignee_names | join(', ') }}"
 ```
 
 ### Bonus points and deductions

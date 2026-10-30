@@ -424,7 +424,7 @@ class TaskOrganizerStats extends HTMLElement {
     this.history.forEach(h => {
       const d = new Date(h.timestamp);
       // Only count entries from the current month AND after the last reset
-      if (d.getMonth() === month && d.getFullYear() === year && h.user_id === userId && (!periodStart || d >= periodStart)) {
+      if (h.type !== 'redeem' && h.type !== 'refund' && d.getMonth() === month && d.getFullYear() === year && h.user_id === userId && (!periodStart || d >= periodStart)) {
         dailyPoints[d.getDate() - 1] = (dailyPoints[d.getDate() - 1] || 0) + h.points;
       }
     });
@@ -545,7 +545,7 @@ class TaskOrganizerStats extends HTMLElement {
     const dailyPoints = new Array(daysInMonth).fill(0);
     this.history.forEach(h => {
       const d = new Date(h.timestamp);
-      if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && h.user_id === userId && (!periodStart || d >= periodStart)) {
+      if (h.type !== 'redeem' && h.type !== 'refund' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && h.user_id === userId && (!periodStart || d >= periodStart)) {
         dailyPoints[d.getDate() - 1] += h.points;
       }
     });

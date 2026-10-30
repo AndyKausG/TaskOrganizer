@@ -11,7 +11,7 @@ const I18N_PROTOCOL = {
     entry_saved: "Entry saved!", entry_deleted: "Entry deleted!",
     height_lbl: "Height", width_lbl: "Width", title_lbl: "Title",
     items_per_page_lbl: "Items per Page", filter_by_lbl: "Filter By",
-    type_task: "Task", type_bonus: "Bonus", type_penalty: "Deduction", type_birthday: "Birthday", type_missed: "Missed", type_skipped: "Skipped",
+    type_task: "Task", type_bonus: "Bonus", type_penalty: "Deduction", type_birthday: "Birthday", type_missed: "Missed", type_skipped: "Skipped", type_redeem: "Reward", type_refund: "Refund",
     undo: "Undo", undo_hover: "Undo completion", confirm_undo: "Points are deducted, the task is open again - without a penalty.", entry_undone: "Entry undone!"
   },
   de: { 
@@ -23,13 +23,13 @@ const I18N_PROTOCOL = {
     entry_saved: "Eintrag gespeichert!", entry_deleted: "Eintrag gelöscht!",
     height_lbl: "Höhe", width_lbl: "Breite", title_lbl: "Titel",
     items_per_page_lbl: "Einträge pro Seite", filter_by_lbl: "Filtern nach",
-    type_task: "Aufgabe", type_bonus: "Bonus", type_penalty: "Abzug", type_birthday: "Geburtstag", type_missed: "Verpasst", type_skipped: "Ausgesetzt",
+    type_task: "Aufgabe", type_bonus: "Bonus", type_penalty: "Abzug", type_birthday: "Geburtstag", type_missed: "Verpasst", type_skipped: "Ausgesetzt", type_redeem: "Belohnung", type_refund: "Erstattung",
     undo: "Rückgängig", undo_hover: "Erledigung rückgängig machen", confirm_undo: "Punkte werden abgezogen, Aufgabe ist wieder offen – ohne Abzug.", entry_undone: "Eintrag rückgängig gemacht!"
   }
 };
 
 /** Icons of the history entry types (legacy entries without a type are tasks). */
-const PROTOCOL_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️' };
+const PROTOCOL_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️' };
 
 /** Escapes text for safe use inside innerHTML templates. */
 function escProtocol(value) {

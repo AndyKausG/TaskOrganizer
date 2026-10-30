@@ -63,6 +63,7 @@ claim_minutes: "Bonus reservation (minutes)",
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
     min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
+    reminder_lbl: "Reminder", reminder_time_lbl: "Remind at", reminder_target_lbl: "Notify via", reminder_event_only: "Event only",
     expire_missed: "Missed duties expire at midnight (daily duties right away, weekly ones after 2 days) - no points, no deduction",
     wizard_btn: "🚀 Kids mode quick start", wizard_hint: "Proposes an age-appropriate set of tasks, points and goals for your kids and creates everything in one click.",
     wizard_missing: "The wizard could not be loaded. Reload the page (Ctrl+F5) and try again.",
@@ -129,6 +130,7 @@ claim_minutes: "Bonus-Reservierung (Minuten)",
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
     min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
+    reminder_lbl: "Erinnerung", reminder_time_lbl: "Erinnern um", reminder_target_lbl: "Benachrichtigen über", reminder_event_only: "nur Ereignis",
     expire_missed: "Verpasste Pflichten verfallen um Mitternacht (tägliche sofort, wöchentliche nach 2 Tagen) – ohne Punkte, ohne Abzug",
     wizard_btn: "🚀 Kindermodus-Schnellstart", wizard_hint: "Schlägt altersgerechte Aufgaben, Punkte und Ziele für eure Kinder vor und legt alles mit einem Klick an.",
     wizard_missing: "Der Assistent konnte nicht geladen werden. Seite neu laden (Strg+F5) und erneut versuchen.",
@@ -213,6 +215,19 @@ function toSetTTimeOptions(value, emptyLabel) {
   if (v && !times.includes(v)) { times.push(v); times.sort(); }
   return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
     times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
+
+
+/**
+ * Options of the reminder target select: "event only" plus every `notify.*` service Home Assistant offers
+ * (value `notify.<name>`). A saved target that is no longer offered is kept as its own option.
+ */
+function toSetNotifyOptions(hass, selected, eventOnlyLabel) {
+  const names = Object.keys((hass && hass.services && hass.services.notify) || {}).filter(n => n !== 'send_message').sort();
+  const values = names.map(n => `notify.${n}`);
+  if (selected && !values.includes(selected)) values.push(selected);
+  return `<option value="" ${selected ? '' : 'selected'}>${eventOnlyLabel}</option>` +
+    values.map(v => `<option value="${v}" ${v === selected ? 'selected' : ''}>${v}</option>`).join('');
 }
 
 class TaskOrganizerSettings extends HTMLElement {
@@ -868,6 +883,8 @@ class TaskOrganizerSettings extends HTMLElement {
       requires_routine: !!this.shadowRoot.getElementById('tmpl-routine')?.checked,
       available_from: this.shadowRoot.getElementById('tmpl-available-from')?.value || '',
       available_until: this.shadowRoot.getElementById('tmpl-available-until')?.value || '',
+      reminder_at: this.shadowRoot.getElementById('tmpl-reminder')?.checked ? (this.shadowRoot.getElementById('tmpl-reminder-at')?.value || '18:00') : '',
+      reminder_target: this.shadowRoot.getElementById('tmpl-reminder')?.checked ? (this.shadowRoot.getElementById('tmpl-reminder-target')?.value || '') : '',
       assignees: assignees,
       subtasks: this._subtasks
     };
@@ -1087,6 +1104,7 @@ class TaskOrganizerSettings extends HTMLElement {
         .modal-content { background: var(--card-background-color); color: var(--primary-text-color); padding: 24px; border-radius: 12px; width: 90%; max-width: 450px; max-height: 90vh; overflow-y: auto; box-shadow: 0px 4px 16px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 16px; }
         .form-label { font-size: 14px; font-weight: 500; color: var(--primary-text-color); margin-bottom: 4px; display: block; } 
         .form-row { display: flex; gap: 16px; }
+        .form-row[hidden] { display: none; }
         .form-col { flex: 1; }
         .templates-header { display: flex; justify-content: space-between; align-items: center; }
         .template-card { display: flex; align-items: center; justify-content: space-between; background: var(--card-background-color); padding: 12px; border-radius: 8px; border: 1px solid var(--divider-color); }
@@ -1817,6 +1835,19 @@ class TaskOrganizerSettings extends HTMLElement {
               <ha-formfield label="${this.localize('routine_lbl')}">
                   <ha-switch id="tmpl-routine" ${template?.requires_routine ? 'checked' : ''}></ha-switch>
               </ha-formfield>
+              <ha-formfield label="${this.localize('reminder_lbl')}">
+                  <ha-switch id="tmpl-reminder" ${template?.reminder_at ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
+              <div class="form-row" id="tmpl-reminder-row" ${template?.reminder_at ? '' : 'hidden'}>
+                  <div class="form-col">
+                      <label class="form-label" for="tmpl-reminder-at">${this.localize('reminder_time_lbl')}</label>
+                      <select id="tmpl-reminder-at" class="form-select">${toSetTTimeOptions(template?.reminder_at || '18:00', '—')}</select>
+                  </div>
+                  <div class="form-col">
+                      <label class="form-label" for="tmpl-reminder-target">${this.localize('reminder_target_lbl')}</label>
+                      <select id="tmpl-reminder-target" class="form-select">${toSetNotifyOptions(this._hass, template?.reminder_target || '', this.localize('reminder_event_only'))}</select>
+                  </div>
+              </div>
 
               <div>
                   <label class="form-label">${this.localize('assignees_lbl')}</label>
@@ -1892,6 +1923,12 @@ class TaskOrganizerSettings extends HTMLElement {
     // Bind click events
     this.shadowRoot.querySelector('ha-card').addEventListener('click', (ev) => this._handleClick(ev));
     this.shadowRoot.querySelector('#template-modal').addEventListener('click', (ev) => this._handleClick(ev));
+    this.shadowRoot.querySelector('#template-modal').addEventListener('change', (ev) => {
+      if (ev.target && ev.target.id === 'tmpl-reminder') {
+        const row = this.shadowRoot.getElementById('tmpl-reminder-row');
+        if (row) row.hidden = !ev.target.checked;
+      }
+    });
     this.shadowRoot.querySelector('#import-modal').addEventListener('click', (ev) => this._handleClick(ev));
 
     // Bind File Import

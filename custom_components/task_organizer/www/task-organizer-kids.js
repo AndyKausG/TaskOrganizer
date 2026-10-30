@@ -72,7 +72,16 @@ const I18N_KIDS = {
     err_helper_wrong_pin: "{name}: that number is not right.", err_helper_locked: "{name}: too many tries. Please wait {s} seconds.",
     err_helper_too_young: "{name} is too young for this task.", err_helper_unknown_kid: "{name} is not set up yet.",
     pa_skipped: "Skipped for today", pa_postponed: "Postponed", pa_completed: "Done for {name}: +{n}", pa_undone: "Undone",
-    replaced_today: "Today: {a} instead of {b}"
+    replaced_today: "Today: {a} instead of {b}",
+    shop: "Shop", shop_title: "Reward shop", shop_balance: "You have", shop_empty: "No rewards available yet.",
+    shop_redeem: "Redeem", shop_need: "{n} ⭐ to go", shop_goal: "Savings goal", shop_goal_on: "Savings goal ✓",
+    shop_confirm: "Redeem {emoji} {name} for ⭐ {cost}?", shop_waiting: "waiting for mom or dad",
+    shop_ready_hint: "Ready to redeem!", shop_done: "Great! Ask mom or dad for your reward.",
+    goal_left: "{n} ⭐ to go for {emoji}", goal_ready: "{emoji} ready!",
+    err_not_enough_points: "You do not have enough stars for this yet.", err_unknown_reward: "This reward does not exist any more.",
+    err_reward_inactive: "This reward is not available right now.",
+    mine_no_person: "Your Home Assistant user is not linked to a person yet. Ask an admin to link it in Settings > People.",
+    mode_mine_lbl: "My tasks (own device, no PIN)"
   },
   de: {
     title: "Familien-Aufgaben", loading: "Lade...",
@@ -127,7 +136,16 @@ const I18N_KIDS = {
     err_helper_wrong_pin: "{name}: Die Geheimzahl stimmt nicht.", err_helper_locked: "{name}: Zu viele Versuche. Bitte warte {s} Sekunden.",
     err_helper_too_young: "{name} ist für diese Aufgabe noch zu jung.", err_helper_unknown_kid: "{name} ist noch nicht eingerichtet.",
     pa_skipped: "Für heute ausgesetzt", pa_postponed: "Zurückgestellt", pa_completed: "Für {name} erledigt: +{n}", pa_undone: "Rückgängig gemacht",
-    replaced_today: "Heute: {a} statt {b}"
+    replaced_today: "Heute: {a} statt {b}",
+    shop: "Shop", shop_title: "Belohnungs-Shop", shop_balance: "Du hast", shop_empty: "Noch keine Belohnungen vorhanden.",
+    shop_redeem: "Einlösen", shop_need: "noch {n} ⭐", shop_goal: "Sparziel", shop_goal_on: "Sparziel ✓",
+    shop_confirm: "{emoji} {name} für ⭐ {cost} einlösen?", shop_waiting: "wartet auf Mama oder Papa",
+    shop_ready_hint: "Bereit zum Einlösen!", shop_done: "Super! Frag Mama oder Papa nach deiner Belohnung.",
+    goal_left: "noch {n} ⭐ bis {emoji}", goal_ready: "{emoji} bereit!",
+    err_not_enough_points: "Dafür reichen deine Sterne noch nicht.", err_unknown_reward: "Diese Belohnung gibt es nicht mehr.",
+    err_reward_inactive: "Diese Belohnung ist gerade nicht verfügbar.",
+    mine_no_person: "Dein Benutzer ist noch keiner Person zugeordnet. Ein Administrator kann das unter Einstellungen > Personen einrichten.",
+    mode_mine_lbl: "Meine Aufgaben (eigenes Gerät, ohne PIN)"
   }
 };
 
@@ -171,6 +189,9 @@ class TaskOrganizerKids extends HTMLElement {
     this.history = [];
     this.familyPoints = null;
     this.birthdayLevelup = {};
+    this.wallet = {};
+    this.redemptions = {};
+    this._shop = false;           // shop panel open inside the kid view
     this._config = {};
     this._hass = null;
     this._dataLoaded = false;
@@ -286,7 +307,8 @@ class TaskOrganizerKids extends HTMLElement {
       sound: config.sound !== false,
       show_family_goal: config.show_family_goal !== false,
       show_bonus_board: config.show_bonus_board !== false,
-      return_home_after_done: config.return_home_after_done !== false
+      return_home_after_done: config.return_home_after_done !== false,
+      mode: config.mode === 'mine' ? 'mine' : 'family'
     };
     if (this._hass) this._render();
   }
@@ -404,6 +426,8 @@ class TaskOrganizerKids extends HTMLElement {
       this._myRole = data.my_role || null;
       this.familyPoints = (data.family_points === undefined || data.family_points === null) ? null : parseFloat(data.family_points);
       this.birthdayLevelup = data.birthday_levelup || {};
+      this.wallet = data.wallet || {};
+      this.redemptions = data.redemptions || {};
       this._fetched = true;
       this._render();
     }).catch((err) => console.error("TaskOrganizer Kids: could not load data", err));
@@ -605,7 +629,9 @@ class TaskOrganizerKids extends HTMLElement {
         strict_until: p.strict_until || null,
         has_pin: !!p.has_pin,
         points: parseFloat(this.points[id]) || 0,
-        goal: parseFloat(goals[id]) || 0
+        goal: parseFloat(goals[id]) || 0,
+        wallet: parseFloat((this.wallet || {})[id]) || 0,
+        goal_reward: p.goal_reward || null
       };
       // pctRaw may exceed 100 (bonus points): the ring draws further laps on top
       kid.pctRaw = kid.goal > 0 ? Math.round((kid.points / kid.goal) * 100) : 0;
@@ -618,6 +644,164 @@ class TaskOrganizerKids extends HTMLElement {
     });
     kids.sort((a, b) => a.name.localeCompare(b.name, (this._hass && this._hass.language) || undefined));
     return kids;
+  }
+
+  // ---------------------------------------------------------------------------
+  // "My tasks" mode (own device): the viewer is the person linked to the HA user
+  // ---------------------------------------------------------------------------
+
+  _isMine() { return this._config.mode === 'mine'; }
+
+  /** The kid (or, for an adult without kid profile, a minimal view model) of the viewer; null if no person is linked. */
+  _mineKid() {
+    const uid = this._hass && this._hass.user && this._hass.user.id;
+    if (!uid) return null;
+    const kid = this._kids().find(k => k.id === uid);
+    if (kid) return kid;
+    const person = this._persons()[uid];
+    if (!person) return null;
+    const adult = { id: uid, name: person.name, avatar: '🙂', color: '#4CAF50', adult: true, points: 0, goal: 0, wallet: 0,
+      pct: 0, pctRaw: 0, age: null, isBirthday: false, birth_year: null, birthday: null, strict_until: null,
+      has_pin: false, goal_reward: null, pendingCount: 0 };
+    adult.duties = this._duties(adult);
+    return adult;
+  }
+
+  /** The kid of the open session (mine mode: the viewer). */
+  _sessionKid() {
+    if (!this._session) return null;
+    if (this._session.mine) return this._mineKid();
+    return this._kids().find(k => k.id === this._session.kidId) || null;
+  }
+
+  /** Websocket payload of a kid command: PIN-checked `kid_*` on the shared tablet, `my_*` (no kid_id, no PIN) in mine mode. */
+  _kidCmd(cmd, extra) {
+    if (this._session.mine) return { type: `task_organizer/my_${cmd}`, ...extra };
+    const payload = { type: `task_organizer/kid_${cmd}`, kid_id: this._session.kidId, ...extra };
+    if (this._session.pin) payload.pin = this._session.pin;
+    return payload;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reward shop
+  // ---------------------------------------------------------------------------
+
+  /** Active rewards (the shop button is hidden without any). */
+  _activeRewards() {
+    return ((this.settings && this.settings.rewards) || []).filter(r => r && r.active !== false);
+  }
+
+  /** Active rewards this kid is old enough for, cheapest first. */
+  _rewardsFor(kid) {
+    const age = this._age(kid);
+    return this._activeRewards().filter(r => !(parseInt(r.min_age) > 0) || age === null || age >= parseInt(r.min_age))
+      .sort((a, b) => (a.cost - b.cost) || String(a.name).localeCompare(String(b.name)));
+  }
+
+  /** The savings-goal reward of a kid (active and old enough) or null. */
+  _goalReward(kid) {
+    return this._rewardsFor(kid).find(r => r.id === kid.goal_reward) || null;
+  }
+
+  _redemptionsFor(kidId) {
+    return Object.values(this.redemptions || {}).filter(r => r.kid_id === kidId && r.status === 'pending')
+      .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+  }
+
+  /** Small bar on the home tile: "noch 12 ⭐ bis 🎲" or "🎲 bereit!". */
+  _renderGoalBar(kid) {
+    const reward = this._goalReward(kid);
+    if (!reward) return '';
+    const left = Math.max(0, reward.cost - kid.wallet);
+    const pct = Math.min(100, Math.round((kid.wallet / reward.cost) * 100));
+    const text = left <= 0
+      ? this.localize('goal_ready', { emoji: reward.emoji || '🎁' })
+      : this.localize('goal_left', { n: fmtKids(left), emoji: reward.emoji || '🎁' });
+    return `<div class="goalbar ${left <= 0 ? 'ready' : ''}"><div class="goal-track"><div class="goal-fill" style="width:${pct}%"></div></div><div class="goal-text">${escKids(text)}</div></div>`;
+  }
+
+  /** The shop panel (replaces the two task columns in the kid view). */
+  _renderShop(kid) {
+    const rewards = this._rewardsFor(kid);
+    const waiting = this._redemptionsFor(kid.id);
+    const cards = rewards.map(r => {
+      const left = Math.max(0, r.cost - kid.wallet);
+      const can = left <= 0;
+      const pct = Math.min(100, Math.round((kid.wallet / r.cost) * 100));
+      const goalOn = kid.goal_reward === r.id;
+      return `
+        <article class="reward ${can ? 'can' : 'cant'} ${goalOn ? 'goal' : ''}">
+          <div class="r-emoji" aria-hidden="true">${escKids(r.emoji || '🎁')}</div>
+          <div class="r-name">${escKids(r.name)}</div>
+          <div class="r-cost">⭐ ${fmtKids(r.cost)}</div>
+          ${can ? `<div class="r-hint ok">${escKids(this.localize('shop_ready_hint'))}</div>`
+                : `<div class="r-track"><div class="r-fill" style="width:${pct}%"></div></div><div class="r-hint">${escKids(this.localize('shop_need', { n: fmtKids(left) }))}</div>`}
+          <div class="r-actions">
+            <button class="btn btn-done" data-action="shop-redeem" data-reward="${escKids(r.id)}" ${can && !this._busy ? '' : 'disabled'}>🛍️ ${escKids(this.localize('shop_redeem'))}</button>
+            <button class="goal-btn ${goalOn ? 'on' : ''}" data-action="shop-goal" data-reward="${escKids(r.id)}" aria-pressed="${goalOn}" ${this._busy ? 'disabled' : ''}>${goalOn ? '' : '⭐ '}${escKids(this.localize(goalOn ? 'shop_goal_on' : 'shop_goal'))}</button>
+          </div>
+        </article>`;
+    }).join('');
+    const waitHtml = waiting.map(w => `<div class="shop-wait">⏳ ${escKids(w.emoji || '')} ${escKids(w.name)} <span>${escKids(this.localize('shop_waiting'))}</span></div>`).join('');
+    return `
+      <div class="kv-body shopview">
+        <section class="col col-shop">
+          <h2>🛍️ ${escKids(this.localize('shop_title'))}</h2>
+          <div class="wallet-big"><span>${escKids(this.localize('shop_balance'))}</span> <b>⭐ ${fmtKids(kid.wallet)}</b></div>
+          <div class="col-scroll">
+            ${waitHtml}
+            <div class="reward-grid">${cards || `<div class="empty-state small">${escKids(this.localize('shop_empty'))}</div>`}</div>
+          </div>
+        </section>
+      </div>`;
+  }
+
+  _openRedeem(rewardId) {
+    const reward = this._activeRewards().find(r => r.id === rewardId);
+    if (!reward) return;
+    this._sheet = { type: 'redeem', rewardId, reward };
+    this._render();
+  }
+
+  /** Redeem the reward of the open confirm sheet (PIN of the session; deducts at once). */
+  async _redeemOk() {
+    const sheet = this._sheet;
+    if (!sheet || this._busy || !this._session) return;
+    this._busy = true;
+    this._sheet = null;
+    this._render();
+    try {
+      const payload = this._kidCmd('redeem', { reward_id: sheet.rewardId });
+      const res = await this._hass.callWS(payload);
+      if (res.success) {
+        this._busy = false;
+        this._celebrate(0, '', false, { emoji: res.emoji || sheet.reward.emoji || '🎁', text: this.localize('shop_done') });
+        this._fetchData();
+        return;
+      }
+      this._handleActionError(res);
+    } catch (err) {
+      console.error("TaskOrganizer Kids: could not redeem", err);
+      this._showToast(this.localize('err_generic'));
+    }
+    this._busy = false;
+    this._render();
+  }
+
+  async _toggleGoal(rewardId) {
+    if (this._busy || !this._session) return;
+    const kid = this._sessionKid();
+    this._busy = true;
+    try {
+      const payload = this._kidCmd('set_goal', { reward_id: kid && kid.goal_reward === rewardId ? null : rewardId });
+      const res = await this._hass.callWS(payload);
+      if (!res.success) this._handleActionError(res);
+    } catch (err) {
+      this._showToast(this.localize('err_generic'));
+    }
+    this._busy = false;
+    this._fetchData();
+    this._render();
   }
 
   _sortTasks(list) {
@@ -722,6 +906,13 @@ class TaskOrganizerKids extends HTMLElement {
   }
 
   _goHome() {
+    if (this._isMine()) {            // no home screen on the own device: just close dialogs / the shop
+      this._sheet = null;
+      this._shop = false;
+      this._busy = false;
+      this._render();
+      return;
+    }
     this._closeBirthday();
     this._view = 'home';
     this._pendingKid = null;
@@ -729,6 +920,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._pinMessage = '';
     this._session = null;
     this._sheet = null;
+    this._shop = false;
     this._busy = false;
     this._render();
   }
@@ -738,7 +930,7 @@ class TaskOrganizerKids extends HTMLElement {
     const clock = this.shadowRoot.getElementById('clock');
     if (clock) clock.textContent = new Date().toLocaleTimeString((this._hass && this._hass.language) || [], { hour: '2-digit', minute: '2-digit' });
 
-    if (this._view !== 'home' && !this._celebrating &&
+    if (!this._isMine() && this._view !== 'home' && !this._celebrating &&
         Date.now() - this._lastActivity > this._config.timeout * 1000) {
       this._goHome();
       return;
@@ -792,6 +984,10 @@ class TaskOrganizerKids extends HTMLElement {
     else if (action === 'tg-next') this._togetherNext();
     else if (action === 'sheet-cancel') { this._sheet = null; this._render(); }
     else if (action === 'sheet-ok') this._sheetOk();
+    else if (action === 'shop-open') { this._shop = true; this._render(); }
+    else if (action === 'shop-close') { this._shop = false; this._sheet = null; this._render(); }
+    else if (action === 'shop-redeem') this._openRedeem(el.dataset.reward);
+    else if (action === 'shop-goal') this._toggleGoal(el.dataset.reward);
   }
 
   // ---------------------------------------------------------------------------
@@ -867,7 +1063,8 @@ class TaskOrganizerKids extends HTMLElement {
   async _sheetOk() {
     const sheet = this._sheet;
     if (!sheet || this._busy || !this._session) return;
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    if (sheet.type === 'redeem') return this._redeemOk();
+    const kid = this._sessionKid();
     let payload;
     let message;
     if (sheet.type === 'postpone') {
@@ -934,10 +1131,15 @@ class TaskOrganizerKids extends HTMLElement {
   _renderSheet() {
     const sheet = this._sheet;
     if (!sheet) return '';
-    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    const kid = this._sessionKid();
     const cancel = `<button class="sbtn" data-action="sheet-cancel">${escKids(this.localize('pa_cancel'))}</button>`;
     let body;
-    if (sheet.type === 'postpone') {
+    if (sheet.type === 'redeem') {
+      const r = sheet.reward;
+      body = `
+        <div class="sheet-title">🛍️ ${escKids(this.localize('shop_confirm', { emoji: r.emoji || '🎁', name: r.name, cost: fmtKids(r.cost) }))}</div>
+        <div class="sheet-btns">${cancel}<button class="sbtn ok" data-action="sheet-ok">${escKids(this.localize('shop_redeem'))}</button></div>`;
+    } else if (sheet.type === 'postpone') {
       const until = this._postponeUntil(sheet);
       const lang = (this._hass && this._hass.language) || undefined;
       const choice = (id, key) => `<button class="schoice ${sheet.choice === id ? 'on' : ''}" data-action="pp-choice" data-choice="${id}" aria-pressed="${sheet.choice === id}">${escKids(this.localize(key))}</button>`;
@@ -1083,7 +1285,7 @@ class TaskOrganizerKids extends HTMLElement {
   _renderTogether() {
     const sheet = this._sheet;
     const task = this.tasks[sheet.taskId];
-    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    const kid = this._sessionKid();
     if (!task || !kid) return '';
     const candidates = this._helperCandidates(task, kid);
     const chips = candidates.map(k => {
@@ -1274,8 +1476,7 @@ class TaskOrganizerKids extends HTMLElement {
     this._busy = true;
     this._render();
     try {
-      const payload = { type: 'task_organizer/kid_claim_task', task_id: taskId, kid_id: this._session.kidId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('claim_task', { task_id: taskId });
       const res = await this._hass.callWS(payload);
       if (res.success) {
         const task = this.tasks[taskId];
@@ -1294,10 +1495,9 @@ class TaskOrganizerKids extends HTMLElement {
     if (this._busy || !this._session) return;
     this._busy = true;
     this._render();
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     try {
-      const payload = { type: 'task_organizer/kid_complete_task', task_id: taskId, kid_id: this._session.kidId };
-      if (this._session.pin) payload.pin = this._session.pin;
+      const payload = this._kidCmd('complete_task', { task_id: taskId });
       const res = await this._hass.callWS(payload);
       if (res.success) {
         this._busy = false;
@@ -1323,14 +1523,19 @@ class TaskOrganizerKids extends HTMLElement {
    * @param {number} points - Awarded points.
    * @param {string} name - Name of the kid.
    */
-  _celebrate(points, name, pending = false) {
+  _celebrate(points, name, pending = false, reward = null) {
     const fx = this.shadowRoot.getElementById('fx');
     if (!fx) return;
     this._celebrating = true;
     const layer = document.createElement('div');
-    layer.className = 'celebrate' + (pending ? ' soft' : '');
+    layer.className = 'celebrate' + (pending || reward ? ' soft' : '');
     // A completion that waits for approval gets a softer celebration (no points yet)
-    layer.innerHTML = pending ? `
+    layer.innerHTML = reward ? `
+      <canvas id="confetti"></canvas>
+      <div class="celebrate-text">
+        <div class="plus">${escKids(reward.emoji)}</div>
+        <div class="great">${escKids(reward.text)}</div>
+      </div>` : pending ? `
       <canvas id="confetti"></canvas>
       <div class="celebrate-text">
         <div class="plus wait">⏳</div>
@@ -1351,7 +1556,7 @@ class TaskOrganizerKids extends HTMLElement {
       setTimeout(() => layer.remove(), 400);
       this._celebrating = false;
       this._lastActivity = Date.now();
-      if (this._config.return_home_after_done) this._goHome();
+      if (this._config.return_home_after_done && !reward && !this._isMine()) this._goHome();
       else this._render();
     }, 2300);
   }
@@ -1536,6 +1741,16 @@ class TaskOrganizerKids extends HTMLElement {
     let html;
     if (!this._fetched) {
       html = `<div class="root"><div class="empty-state">${escKids(this.localize('loading'))}</div></div>`;
+    } else if (this._isMine()) {
+      const me = this._mineKid();
+      if (!me) {
+        this._session = null;
+        html = `<div class="root"><div class="empty-state">🙋 ${escKids(this.localize('mine_no_person'))}</div></div>`;
+      } else {
+        this._session = { kidId: me.id, pin: null, mine: true };
+        this._view = 'kid';
+        html = this._renderKidView();
+      }
     } else if (this._view === 'kid' && this._session) {
       html = this._renderKidView();
     } else {
@@ -1632,6 +1847,7 @@ class TaskOrganizerKids extends HTMLElement {
           </div>
           <div class="name">${escKids(kid.name)}</div>
           <div class="pts">${this._pointsLabel(kid)}</div>
+          ${this._renderGoalBar(kid)}
           <div class="badges">${badge}${waiting}</div>
         </button>`;
     }).join('');
@@ -1726,10 +1942,12 @@ class TaskOrganizerKids extends HTMLElement {
   }
 
   _renderKidView() {
-    const kid = this._kids().find(k => k.id === this._session.kidId);
+    const kid = this._sessionKid();
     if (!kid) return this._renderHome();
+    const adult = !!kid.adult;
+    const mine = this._isMine();
     const duties = kid.duties;
-    const bonus = this._bonusFor(kid);
+    const bonus = adult ? [] : this._bonusFor(kid);
     const persons = {};
     this._kids().forEach(k => { persons[k.id] = k; });
 
@@ -1744,32 +1962,33 @@ class TaskOrganizerKids extends HTMLElement {
       : `<div class="empty-state small">😴 ${escKids(this.localize('no_bonus'))}</div>`;
 
     return `
-      <div class="root kidview ${kid.isBirthday ? 'bday' : ''}" style="--kc:${kid.color}">
+      <div class="root kidview ${kid.isBirthday ? 'bday' : ''} ${adult ? 'adult' : ''}" style="--kc:${kid.color}">
         <header class="kv-head">
-          <button class="back" data-action="back" aria-label="${escKids(this.localize('back'))}"><span class="back-arrow">⬅</span><span class="back-label"> ${escKids(this.localize('back'))}</span></button>
+          ${!mine || this._shop ? `<button class="back" data-action="${this._shop ? 'shop-close' : 'back'}" aria-label="${escKids(this.localize('back'))}"><span class="back-arrow">⬅</span><span class="back-label"> ${escKids(this.localize('back'))}</span></button>` : ''}
           <div class="kv-who">
             <div class="ring-wrap small">
               ${kid.isBirthday ? '<div class="crown" aria-hidden="true">👑</div>' : ''}
-              ${this._ring(kid, 104, 11)}
+              ${adult ? '' : this._ring(kid, 104, 11)}
               <div class="avatar">${escKids(kid.avatar)}</div>
             </div>
             <div>
               <div class="kv-name">${escKids(kid.name)}</div>
-              <div class="kv-pts">${this._pointsLabel(kid)}</div>
+              ${adult ? '' : `<div class="kv-pts">${this._pointsLabel(kid)}</div>`}
             </div>
           </div>
+          ${!adult && this._activeRewards().length && !this._shop ? `<button class="shop-btn" data-action="shop-open">🛍️<span class="shop-label"> ${escKids(this.localize('shop'))}</span><span class="shop-bal">⭐ ${fmtKids(kid.wallet)}</span></button>` : ''}
         </header>
-        ${kid.isBirthday ? this._renderParty(kid) : ''}
-        <div class="kv-body">
+        ${kid.isBirthday && !this._shop ? this._renderParty(kid) : ''}
+        ${this._shop ? this._renderShop(kid) : `<div class="kv-body">
           <section class="col">
             <h2>📋 ${escKids(this.localize('my_tasks'))} <span class="count">${duties.length}</span></h2>
             <div class="col-scroll">${dutyHtml}</div>
           </section>
-          <section class="col col-bonus">
+          ${adult ? '' : `<section class="col col-bonus">
             <h2>🎁 ${escKids(this.localize('bonus'))} <span class="count">${bonus.length}</span></h2>
             <div class="col-scroll">${bonusHtml}</div>
-          </section>
-        </div>
+          </section>`}
+        </div>`}
         ${this._helperMode() ? this._renderPin() : (this._sheet && this._sheet.type === 'together' ? this._renderTogether() : this._renderSheet())}
       </div>`;
   }
@@ -1875,7 +2094,7 @@ class TaskOrganizerKids extends HTMLElement {
       // "Fertig!" only once every required step is ticked (optional steps never block)
       const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
       action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
-      if (this._helperCandidates(task, kid).length) {
+      if (!this._isMine() && this._helperCandidates(task, kid).length) {
         action += `<button class="btn btn-together" data-action="together" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>👫 ${escKids(this.localize('together'))}</button>`;
       }
       if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
@@ -2096,6 +2315,40 @@ class TaskOrganizerKids extends HTMLElement {
       .sbtn.ok { background: var(--k-good); border-color: var(--k-good); color: #fff; }
       .sbtn:disabled { opacity: 0.5; }
 
+      /* ---------- reward shop ---------- */
+      .goalbar { width: 100%; max-width: 280px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+      .goal-track { width: 100%; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--k-sub) 25%, transparent); overflow: hidden; }
+      .goal-fill { height: 100%; border-radius: 7px; background: linear-gradient(90deg, #FFB300, #FF6D00); min-width: 6px; }
+      .goalbar.ready .goal-fill { background: var(--k-good); }
+      .goal-text { font-size: 19px; font-weight: 800; color: var(--k-sub); text-align: center; }
+      .goalbar.ready .goal-text { color: var(--k-good); }
+      .shop-btn { margin-left: auto; min-height: 88px; padding: 0 28px; border-radius: 44px; background: #F9A825; color: #1b1b1b; border: 4px solid #F57F17; font-size: 32px; font-weight: 800; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 0 rgba(0,0,0,0.22); }
+      .shop-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.22); }
+      .shop-bal { font-size: 26px; padding: 4px 14px; border-radius: 22px; background: rgba(255,255,255,0.6); }
+      .kidview.adult .kv-body { grid-template-columns: minmax(0, 1fr); }
+      .shopview .col-shop { grid-column: 1 / -1; }
+      .wallet-big { font-size: 28px; font-weight: 700; color: var(--k-sub); margin: -4px 0 12px; }
+      .wallet-big b { font-size: 56px; color: var(--k-text); font-weight: 900; vertical-align: middle; margin-left: 8px; }
+      .reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+      .reward { background: var(--k-card); border: 4px solid var(--k-line); border-radius: 28px; padding: 14px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+      .reward.can { border-color: var(--k-good); background: color-mix(in srgb, var(--k-good) 12%, var(--k-card)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--k-good) 25%, transparent); }
+      .reward.cant { opacity: 0.8; }
+      .reward.cant .r-emoji { filter: grayscale(0.7); }
+      .reward.goal { border-color: #F9A825; }
+      .r-emoji { font-size: 64px; line-height: 1.1; }
+      .r-name { font-size: 26px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+      .r-cost { font-size: 28px; font-weight: 900; }
+      .r-track { width: 100%; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--k-sub) 25%, transparent); overflow: hidden; }
+      .r-fill { height: 100%; border-radius: 7px; background: linear-gradient(90deg, #FFB300, #FF6D00); min-width: 6px; }
+      .r-hint { font-size: 21px; font-weight: 800; color: var(--k-sub); }
+      .r-hint.ok { color: var(--k-good); }
+      .r-actions { width: 100%; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+      .r-actions .btn { width: 100%; min-height: 64px; font-size: 24px; }
+      .goal-btn { min-height: 52px; border-radius: 26px; font-size: 20px; font-weight: 800; background: color-mix(in srgb, var(--k-sub) 14%, var(--k-card)); border: 3px solid var(--k-line); }
+      .goal-btn.on { background: #FFF3CD; border-color: #F9A825; color: #1b1b1b; }
+      .shop-wait { padding: 10px 16px; margin-bottom: 12px; border-radius: 22px; border: 3px dashed color-mix(in srgb, var(--k-sub) 70%, transparent); background: color-mix(in srgb, var(--k-sub) 10%, var(--k-card)); font-size: 24px; font-weight: 800; }
+      .shop-wait span { color: var(--k-sub); font-weight: 700; font-size: 20px; }
+
       /* ---------- PIN pad ---------- */
       .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.62); display: grid; place-items: center; padding: 16px; }
       .pin-dialog { display: flex; align-items: center; gap: 44px; padding: 32px 44px; border-radius: 44px; background: var(--k-card); border: 6px solid var(--kc); box-shadow: 0 16px 48px rgba(0,0,0,0.5); max-width: 100%; }
@@ -2214,6 +2467,25 @@ class TaskOrganizerKids extends HTMLElement {
       :host([narrow]) .ring-wrap.small .crown { font-size: 22px; top: -9px; }
       :host([narrow]) .kv-name { font-size: 24px; overflow-wrap: anywhere; }
       :host([narrow]) .kv-pts { font-size: 17px; }
+      :host([narrow]) .shop-btn { min-height: 48px; padding: 0 12px; border-width: 3px; font-size: 22px; gap: 6px; flex: none; }
+      :host([narrow]) .shop-label { display: none; }
+      :host([narrow]) .shop-bal { font-size: 16px; padding: 2px 8px; }
+      :host([narrow]) .goal-text { font-size: 13px; }
+      :host([narrow]) .goal-track { height: 10px; }
+      :host([narrow]) .wallet-big { font-size: 18px; margin-bottom: 8px; }
+      :host([narrow]) .wallet-big b { font-size: 34px; }
+      :host([narrow]) .reward-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+      :host([narrow]) .reward { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 2px 12px; padding: 10px 12px; border-radius: 20px; border-width: 3px; text-align: left; align-items: center; }
+      :host([narrow]) .r-emoji { font-size: 40px; grid-row: 1 / span 4; grid-column: 1; align-self: start; }
+      :host([narrow]) .r-name, :host([narrow]) .r-cost, :host([narrow]) .r-track, :host([narrow]) .r-hint { grid-column: 2; }
+      :host([narrow]) .r-name { font-size: 18px; }
+      :host([narrow]) .r-cost { font-size: 18px; }
+      :host([narrow]) .r-hint { font-size: 15px; }
+      :host([narrow]) .r-track { height: 10px; }
+      :host([narrow]) .r-actions { grid-column: 1 / -1; flex-direction: row; }
+      :host([narrow]) .r-actions .btn { min-height: 48px; font-size: 18px; min-width: 0; }
+      :host([narrow]) .goal-btn { min-height: 48px; font-size: 15px; padding: 0 8px; flex: none; }
+      :host([narrow]) .shop-wait { font-size: 16px; padding: 8px 10px; }
       :host([narrow]) .kv-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
       :host([narrow]) .col { padding: 10px 10px 12px; border-radius: 22px; border-width: 2px; }
       :host([narrow]) .col h2 { font-size: 20px; margin-bottom: 8px; gap: 8px; }
@@ -2332,6 +2604,9 @@ class TaskOrganizerKidsEditor extends HTMLElement {
           <ha-formfield label="${this.localize('return_home_lbl')}">
             <ha-checkbox configValue="return_home_after_done"></ha-checkbox>
           </ha-formfield>
+          <ha-formfield label="${this.localize('mode_mine_lbl')}">
+            <ha-checkbox configValue="mode_mine"></ha-checkbox>
+          </ha-formfield>
         </div>
       </div>
       <style>
@@ -2350,7 +2625,9 @@ class TaskOrganizerKidsEditor extends HTMLElement {
     this.querySelectorAll('[configValue]').forEach(el => {
       const key = el.getAttribute('configValue');
       const value = this._config[key];
-      if (el.tagName === 'HA-CHECKBOX') {
+      if (key === 'mode_mine') {
+        el.checked = this._config.mode === 'mine';
+      } else if (el.tagName === 'HA-CHECKBOX') {
         el.checked = value !== false;
       } else if (value !== undefined) {
         el.value = value;
@@ -2365,6 +2642,12 @@ class TaskOrganizerKidsEditor extends HTMLElement {
     const configValue = target.configValue || target.getAttribute('configValue');
     let newValue = target.value;
 
+    if (configValue === 'mode_mine') {
+      const mode = target.checked ? 'mine' : 'family';
+      if ((this._config.mode || 'family') === mode) return;
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: { ...this._config, mode } }, bubbles: true, composed: true }));
+      return;
+    }
     if (target.tagName === 'HA-CHECKBOX') {
       newValue = target.checked;
     } else if (configValue === 'timeout') {

@@ -26,12 +26,17 @@ EVENT_BONUS_OPENED = "task_organizer_bonus_opened"
 EVENT_APPROVAL_REQUESTED = "task_organizer_approval_requested"
 EVENT_APPROVAL_RESOLVED = "task_organizer_approval_resolved"
 EVENT_KID_BIRTHDAY = "task_organizer_kid_birthday"
+EVENT_TASK_REMINDER = "task_organizer_task_reminder"
+EVENT_REWARD_REQUESTED = "task_organizer_reward_requested"
+EVENT_REWARD_RESOLVED = "task_organizer_reward_resolved"
 
 # Event fired by the Home Assistant companion app when a notification action is tapped
 EVENT_MOBILE_APP_ACTION = "mobile_app_notification_action"
 ACTION_APPROVE = "TO_APPROVE_"
 ACTION_NOT_DONE = "TO_NOTDONE_"
 ACTION_CHEAT = "TO_CHEAT_"
+ACTION_REWARD_APPROVE = "TO_RAPPROVE_"
+ACTION_REWARD_REJECT = "TO_RREJECT_"
 
 # WebSocket Command Types
 WS_TYPE_GET_DATA = "task_organizer/get_data"
@@ -66,6 +71,14 @@ WS_TYPE_ADD_ADHOC_BONUS = "task_organizer/add_adhoc_bonus"
 WS_TYPE_SET_PARENTS = "task_organizer/set_parents"
 WS_TYPE_PARENT_TASK_ACTION = "task_organizer/parent_task_action"
 WS_TYPE_PARENT_COMPLETE_FOR = "task_organizer/parent_complete_for"
+WS_TYPE_MY_COMPLETE_TASK = "task_organizer/my_complete_task"
+WS_TYPE_MY_CLAIM_TASK = "task_organizer/my_claim_task"
+WS_TYPE_MY_REDEEM = "task_organizer/my_redeem"
+WS_TYPE_MY_SET_GOAL = "task_organizer/my_set_goal"
+WS_TYPE_SET_REWARDS = "task_organizer/set_rewards"
+WS_TYPE_KID_REDEEM = "task_organizer/kid_redeem"
+WS_TYPE_KID_SET_GOAL = "task_organizer/kid_set_goal"
+WS_TYPE_REDEMPTION_RESOLVE = "task_organizer/redemption_resolve"
 
 # Service Names
 SERVICE_RESET_MONTHLY_POINTS = "reset_monthly_points"
