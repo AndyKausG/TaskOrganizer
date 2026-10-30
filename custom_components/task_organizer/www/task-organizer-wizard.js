@@ -41,7 +41,7 @@ const I18N_WIZARD = {
     family_reward: "Reward", family_reward_ph: "e.g. Pizza night", prorate_note: "The month is already running ({d} of {m} days left): goals were reduced proportionally.",
     rewards: ["Pizza night", "Cinema", "Swimming pool", "Day trip"],
     summary_intro: "Everything is ready. Please check:", n_tasks: "{n} tasks", n_bonus: "{n} bonus tasks", n_templates: "{n} order templates",
-    n_triggers: "{n} automatic triggers", replace: "Update earlier wizard tasks", replace_d: "Tasks created by this wizard are updated in place (name, points, icon, subtasks, time window): due dates, pauses and progress stay as they are. Tasks that are no longer selected are removed; rotations whose members changed start again tomorrow. Your own tasks, points and history stay untouched.",
+    n_triggers: "{n} automatic triggers", replace: "Update earlier wizard tasks", replace_d: "Tasks created by this wizard are updated in place (name, points, icon, subtasks, time window): due dates, pauses and progress stay as they are. Tasks that are no longer selected are removed; rotations whose members changed start again tomorrow. Your own tasks, points and history stay untouched.", reschedule: "Redistribute due dates", reschedule_d: "Existing wizard tasks get fresh due dates like a new plan (household day for weekly tasks, staggered rotations, daily tasks today if their time window is still ahead, otherwise tomorrow). Points, history and progress stay. Only together with updating earlier tasks.",
     kid_goal_line: "{name}: goal {g} pts", family_line: "Family goal: {g} pts", reward_line: "Reward: {r}",
     ok_title: "Done! Your kids mode is ready.", ok_counts: "Created {created} tasks, {bonus} bonus tasks and {templates} templates.",
     ok_deleted: "{n} earlier wizard tasks were removed.", ok_updated: "{n} existing tasks were updated (due dates kept).", ok_skipped: "{n} tasks already existed and were skipped.",
@@ -81,7 +81,7 @@ const I18N_WIZARD = {
     family_reward: "Belohnung", family_reward_ph: "z.B. Pizza-Abend", prorate_note: "Der Monat läuft schon (noch {d} von {m} Tagen): Die Ziele wurden anteilig gekürzt.",
     rewards: ["Pizza-Abend", "Kino", "Schwimmbad", "Ausflug"],
     summary_intro: "Alles bereit. Bitte kurz prüfen:", n_tasks: "{n} Aufgaben", n_bonus: "{n} Bonus-Aufgaben", n_templates: "{n} Auftrags-Vorlagen",
-    n_triggers: "{n} automatische Auslöser", replace: "Bisherige Assistent-Aufgaben aktualisieren", replace_d: "Vom Assistenten angelegte Aufgaben werden an Ort und Stelle aktualisiert (Name, Punkte, Symbol, Teilaufgaben, Zeitfenster): Fälligkeit, Pause und Fortschritt bleiben erhalten. Nicht mehr gewählte Aufgaben werden entfernt; Rotationen mit geänderten Mitgliedern starten morgen neu. Eigene Aufgaben, Punkte und Verlauf bleiben unberührt.",
+    n_triggers: "{n} automatische Auslöser", replace: "Bisherige Assistent-Aufgaben aktualisieren", replace_d: "Vom Assistenten angelegte Aufgaben werden an Ort und Stelle aktualisiert (Name, Punkte, Symbol, Teilaufgaben, Zeitfenster): Fälligkeit, Pause und Fortschritt bleiben erhalten. Nicht mehr gewählte Aufgaben werden entfernt; Rotationen mit geänderten Mitgliedern starten morgen neu. Eigene Aufgaben, Punkte und Verlauf bleiben unberührt.", reschedule: "Termine neu verteilen", reschedule_d: "Bisherige Assistent-Aufgaben bekommen neue Fälligkeiten wie bei einem neuen Plan (Haushaltstag für wöchentliche Aufgaben, versetzte Rotationen, tägliche Aufgaben heute, wenn ihr Zeitfenster noch bevorsteht, sonst morgen). Punkte, Verlauf und Fortschritt bleiben. Nur zusammen mit dem Aktualisieren bisheriger Aufgaben.",
     kid_goal_line: "{name}: Ziel {g} Pkt", family_line: "Familienziel: {g} Pkt", reward_line: "Belohnung: {r}",
     ok_title: "Geschafft! Der Kindermodus ist eingerichtet.", ok_counts: "{created} Aufgaben, {bonus} Bonus-Aufgaben und {templates} Vorlagen angelegt.",
     ok_deleted: "{n} Assistent-Aufgaben wurden entfernt.", ok_updated: "{n} bestehende Aufgaben wurden aktualisiert (Fälligkeit bleibt).", ok_skipped: "{n} Aufgaben gab es schon und wurden übersprungen.",
@@ -459,6 +459,7 @@ class TaskOrganizerWizard extends HTMLElement {
       familyReward: (settings.family_goal && settings.family_goal.reward) || '',
       existingFamilyGoal: settings.family_goal || null,
       replace: wizardTasks,
+      reschedule: false,
       hasWizardTasks: wizardTasks,
       preview: null,
       previewError: '',
@@ -624,6 +625,7 @@ class TaskOrganizerWizard extends HTMLElement {
         goals,
         family_goal: { points: Math.max(0, parseInt(s.familyPoints) || 0), reward: (s.familyReward || '').trim() },
         replace_existing: !!s.replace,
+        reschedule: !!(s.replace && s.reschedule),
         device_triggers
       });
       this._step = 5;
@@ -1050,6 +1052,9 @@ class TaskOrganizerWizard extends HTMLElement {
       <label class="card" style="border-left-color:var(--warning-color,#ffa000); cursor:pointer">
         <div class="row"><span class="sw-switch"><input type="checkbox" data-act="replace" ${s.replace ? 'checked' : ''}><span></span></span><b>${wzEsc(this._t('replace'))}</b></div>
         <span class="muted">${wzEsc(this._t('replace_d'))}</span></label>
+      ${s.hasWizardTasks ? `<label class="card" style="border-left-color:var(--warning-color,#ffa000); cursor:pointer; ${s.replace ? '' : 'opacity:.5'}">
+        <div class="row"><span class="sw-switch"><input type="checkbox" data-act="reschedule" ${s.reschedule && s.replace ? 'checked' : ''} ${s.replace ? '' : 'disabled'}><span></span></span><b>${wzEsc(this._t('reschedule'))}</b></div>
+        <span class="muted">${wzEsc(this._t('reschedule_d'))}</span></label>` : ''}
       ${s.error ? `<div class="err">${wzEsc(this._t('error'))}${wzEsc(s.error)}</div>` : ''}`;
   }
 
@@ -1133,6 +1138,9 @@ class TaskOrganizerWizard extends HTMLElement {
       this._scheduleRefresh(0);
     } else if (act === 'replace') {
       s.replace = el.checked;
+      this._renderBody();
+    } else if (act === 'reschedule') {
+      s.reschedule = el.checked;
     }
   }
 
