@@ -47,7 +47,18 @@ TYPE_PENALTY = "penalty"
 TYPE_BIRTHDAY = "birthday"
 TYPE_MISSED = "missed"
 TYPE_SKIPPED = "skipped"
-HISTORY_TYPES = (TYPE_TASK, TYPE_BONUS, TYPE_PENALTY, TYPE_BIRTHDAY, TYPE_MISSED, TYPE_SKIPPED)
+TYPE_REDEEM = "redeem"
+TYPE_REFUND = "refund"
+HISTORY_TYPES = (
+    TYPE_TASK, TYPE_BONUS, TYPE_PENALTY, TYPE_BIRTHDAY, TYPE_MISSED, TYPE_SKIPPED, TYPE_REDEEM, TYPE_REFUND,
+)
+# Reward shop entries only move the wallet, never the monthly points / goals
+WALLET_ONLY_TYPES = (TYPE_REDEEM, TYPE_REFUND)
+
+# Reward shop limits
+MAX_REWARDS = 30
+MAX_REWARD_COST = 1000
+MAX_REWARD_NAME = 40
 
 # Grace period (days after the due day) before a missed duty expires
 WEEKLY_GRACE_DAYS = 2
@@ -68,6 +79,9 @@ ERR_NOT_YET = "not_yet"
 ERR_TOO_LATE = "too_late"
 ERR_STEPS_OPEN = "steps_open"
 ERR_DUPLICATE_HELPER = "duplicate_helper"
+ERR_UNKNOWN_REWARD = "unknown_reward"
+ERR_REWARD_INACTIVE = "reward_inactive"
+ERR_NOT_ENOUGH = "not_enough_points"
 
 # Window states of a task (see window_state)
 WINDOW_OPEN = "open"
@@ -586,6 +600,7 @@ def public_kids(kids: dict | None) -> dict:
             "birthday": profile.get("birthday"),
             "approval_sample_rate": normalize_sample_rate(profile.get("approval_sample_rate")),
             "strict_until": profile.get("strict_until"),
+            "goal_reward": profile.get("goal_reward"),
             "has_pin": bool(profile.get("pin_hash") and profile.get("pin_salt")),
         }
         result[kid_id] = entry
@@ -942,3 +957,67 @@ def next_due_day(due: date, interval: int, today: date) -> date:
     if nxt < today:
         nxt += timedelta(days=interval * math.ceil((today - nxt).days / interval))
     return nxt
+
+
+# ---------------------------------------------------------------------------
+# Reward shop (wallet, rewards)
+# ---------------------------------------------------------------------------
+
+def wallet_add(wallet: dict, uid: str, delta: float) -> float:
+    """Add ``delta`` to the wallet of ``uid`` (never below 0) and return the new balance."""
+    try:
+        current = float(wallet.get(uid, 0) or 0)
+    except (TypeError, ValueError):
+        current = 0.0
+    wallet[uid] = round(max(0.0, current + float(delta)), 1)
+    return wallet[uid]
+
+
+def _int_in(value: Any, low: int, high: int) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value != int(value):
+        return None
+    value = int(value)
+    return value if low <= value <= high else None
+
+
+def normalize_rewards(raw: Any) -> list[dict] | None:
+    """Validate the reward list; ``None`` when anything is invalid.
+
+    Every reward is ``{id, name, emoji, cost 1-1000, min_age 0-18, active}``;
+    a missing id is generated.
+    """
+    if not isinstance(raw, list) or len(raw) > MAX_REWARDS:
+        return None
+    result: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        name = item.get("name")
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= MAX_REWARD_NAME:
+            return None
+        emoji = item.get("emoji")
+        if emoji is None or emoji == "":
+            emoji = "🎁"
+        if not isinstance(emoji, str) or len(emoji.strip()) > 16:
+            return None
+        cost = _int_in(item.get("cost"), 1, MAX_REWARD_COST)
+        min_age = _int_in(item.get("min_age", 0), 0, MIN_AGE_MAX)
+        if cost is None or min_age is None:
+            return None
+        rid = item.get("id") or secrets.token_hex(4)
+        if not isinstance(rid, str) or len(rid) > 40 or rid in seen:
+            return None
+        seen.add(rid)
+        result.append({
+            "id": rid, "name": name.strip(), "emoji": emoji.strip() or "🎁", "cost": cost,
+            "min_age": min_age, "active": item.get("active", True) is not False,
+        })
+    return result
+
+
+def find_reward(rewards: Any, reward_id: Any) -> dict | None:
+    for reward in rewards or []:
+        if isinstance(reward, dict) and reward.get("id") == reward_id:
+            return reward
+    return None

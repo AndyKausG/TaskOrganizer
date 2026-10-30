@@ -36,7 +36,11 @@ from .const import (
     EVENT_APPROVAL_REQUESTED,
     EVENT_APPROVAL_RESOLVED,
     EVENT_KID_BIRTHDAY,
+    EVENT_REWARD_REQUESTED,
+    EVENT_REWARD_RESOLVED,
     EVENT_MOBILE_APP_ACTION,
+    ACTION_REWARD_APPROVE,
+    ACTION_REWARD_REJECT,
     ACTION_APPROVE,
     ACTION_NOT_DONE,
     ACTION_CHEAT,
@@ -74,6 +78,10 @@ from .const import (
     WS_TYPE_SET_PARENTS,
     WS_TYPE_PARENT_TASK_ACTION,
     WS_TYPE_PARENT_COMPLETE_FOR,
+    WS_TYPE_SET_REWARDS,
+    WS_TYPE_KID_REDEEM,
+    WS_TYPE_KID_SET_GOAL,
+    WS_TYPE_REDEMPTION_RESOLVE,
     SERVICE_ADJUST_POINTS,
     SERVICE_ADD_TASK,
     SERVICE_COMPLETE_TASK_BY_NAME,
@@ -108,6 +116,15 @@ from .kids import (
     TYPE_PENALTY,
     TYPE_SKIPPED,
     TYPE_TASK,
+    TYPE_REDEEM,
+    TYPE_REFUND,
+    WALLET_ONLY_TYPES,
+    ERR_UNKNOWN_REWARD,
+    ERR_REWARD_INACTIVE,
+    ERR_NOT_ENOUGH,
+    find_reward,
+    normalize_rewards,
+    wallet_add,
     PinLimiter,
     birthday_bonus_points,
     birthday_duty_free,
@@ -322,11 +339,18 @@ async def ws_get_data(hass: HomeAssistant, connection: websocket_api.ActiveConne
     response_data["settings"] = sanitize_settings(entry.options)
     response_data.setdefault("pending", {})
     response_data.setdefault("birthday_levelup", {})
+    response_data.setdefault("wallet", {})
+    response_data.setdefault("redemptions", {})
     response_data["family_points"] = _family_points(hass)
     response_data["my_role"] = _role(hass, connection.user)
     response_data["ha_users"] = _parent_candidates(hass, entry.options)
     
     connection.send_result(msg["id"], response_data)
+
+
+def _wallet_add(data: dict, uid: str, delta: float) -> float:
+    """Credit / debit the wallet (reward shop balance, never negative, not reset monthly)."""
+    return wallet_add(data.setdefault("wallet", {}), uid, delta)
 
 
 def _family_points(hass: HomeAssistant) -> float:
@@ -414,6 +438,7 @@ def _award_task_points(
     for u_id, pts in users_with_points.items():
         data["points"].setdefault(u_id, 0.0)
         data["points"][u_id] += pts
+        _wallet_add(data, u_id, pts)
 
         history_entry = {
             "id": str(uuid.uuid4()),
@@ -701,6 +726,8 @@ async def ws_factory_reset(hass: HomeAssistant, connection: websocket_api.Active
 _PROTECTED_SETTING_KEYS = (
     "pending", "history", "points", "tasks", "templates",
     "birthday_handled", "birthday_levelup", "monthly_history",
+    # Reward shop: wallet / redemptions are runtime data, rewards have set_rewards
+    "wallet", "redemptions", "rewards",
     # Roles are only changed through the admin-only set_parents command
     "parents", "parents_manage",
 )
@@ -736,6 +763,20 @@ async def ws_update_settings(hass: HomeAssistant, connection: websocket_api.Acti
     connection.send_result(msg["id"], {"success": True})
 
 
+def _history_revert(data: dict, entry_type: str | None, uid: str, pts: float) -> None:
+    """Take back a history entry: wallet always, monthly points unless it is a shop entry."""
+    _wallet_add(data, uid, -pts)
+    if entry_type not in WALLET_ONLY_TYPES and uid in data["points"]:
+        data["points"][uid] = max(0.0, float(data["points"][uid]) - pts)
+
+
+def _history_apply(data: dict, entry_type: str | None, uid: str, pts: float) -> None:
+    """Apply a (re-assigned) history entry like ``_history_revert`` in the other direction."""
+    _wallet_add(data, uid, pts)
+    if entry_type not in WALLET_ONLY_TYPES:
+        data["points"][uid] = max(0.0, float(data["points"].get(uid, 0.0)) + pts)
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): WS_TYPE_DELETE_HISTORY_ITEM,
     vol.Required("entry_id"): str,
@@ -755,8 +796,7 @@ async def ws_delete_history_item(hass: HomeAssistant, connection: websocket_api.
         u_id = entry_to_delete["user_id"]
         pts = float(entry_to_delete.get("points", 0))
         
-        if u_id in data["points"]:
-            data["points"][u_id] = max(0.0, float(data["points"][u_id]) - pts)
+        _history_revert(data, entry_to_delete.get("type"), u_id, pts)
             
         data["history"] = [item for item in history if item["id"] != entry_id]
         
@@ -792,12 +832,8 @@ async def ws_edit_history_item(hass: HomeAssistant, connection: websocket_api.Ac
         old_u_id = entry["user_id"]
         old_pts = float(entry.get("points", 0))
         
-        if old_u_id in data["points"]:
-            data["points"][old_u_id] = max(0.0, float(data["points"][old_u_id]) - old_pts)
-            
-        if new_user_id not in data["points"]:
-            data["points"][new_user_id] = 0.0
-        data["points"][new_user_id] = max(0.0, data["points"][new_user_id] + new_points)
+        _history_revert(data, entry.get("type"), old_u_id, old_pts)
+        _history_apply(data, entry.get("type"), new_user_id, new_points)
         
         entry["user_id"] = new_user_id
         entry["points"] = new_points
@@ -1335,6 +1371,7 @@ def _apply_adjustment(
     current = float(data["points"].get(kid_id, 0) or 0)
     applied = round(clamp_adjustment(current, points), 1)
     data["points"][kid_id] = round(current + applied, 1)
+    _wallet_add(data, kid_id, applied)
     entry = {
         "id": str(uuid.uuid4()),
         "task_id": "",
@@ -1595,6 +1632,7 @@ async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.Acti
             pts = 0.0
         if uid in data["points"]:
             data["points"][uid] = round(max(0.0, float(data["points"][uid]) - pts), 1)
+        _wallet_add(data, uid, -pts)
         removed_points[uid] = round(removed_points.get(uid, 0.0) + pts, 1)
     data["history"] = [h for h in history if h.get("id") not in group_ids]
 
@@ -1825,9 +1863,15 @@ async def _async_remove_expired_adhoc(hass: HomeAssistant) -> int:
 # ---- push notification actions -------------------------------------------------
 
 async def _async_handle_push_action(hass: HomeAssistant, action: str) -> None:
-    """Execute ``TO_APPROVE_<id>`` / ``TO_NOTDONE_<id>`` / ``TO_CHEAT_<id>``."""
+    """Execute ``TO_APPROVE_<id>`` / ``TO_NOTDONE_<id>`` / ``TO_CHEAT_<id>`` and ``TO_RAPPROVE_`` / ``TO_RREJECT_``."""
     if DOMAIN not in hass.data:
         return
+    for prefix, approve in ((ACTION_REWARD_APPROVE, True), (ACTION_REWARD_REJECT, False)):
+        if action.startswith(prefix):
+            result = await _async_resolve_redemption(hass, action[len(prefix):], approve)
+            if result is None:
+                _LOGGER.debug("Notification action %s ignored: unknown or already handled id", action)
+            return
     for prefix, mode in ((ACTION_APPROVE, "approve"), (ACTION_NOT_DONE, "not_done"), (ACTION_CHEAT, "cheated")):
         if action.startswith(prefix):
             pending_id = action[len(prefix):]
@@ -1980,6 +2024,169 @@ async def ws_kid_claim_task(hass: HomeAssistant, connection: websocket_api.Activ
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
     connection.send_result(msg["id"], {"success": True, "claimed_until": claimed_until})
+
+
+# ---------------------------------------------------------------------------
+# Reward shop: rewards, redeem, savings goal, resolve
+# ---------------------------------------------------------------------------
+
+_REDEMPTION_KEEP_DAYS = 60
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_SET_REWARDS,
+    vol.Required("rewards"): list,
+})
+@websocket_api.async_response
+async def ws_set_rewards(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Replace the reward list (admin / manager). Validated, at most 30 rewards."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
+        return
+    rewards = normalize_rewards(msg["rewards"])
+    if rewards is None:
+        connection.send_error(msg["id"], "invalid_rewards", "Invalid reward list")
+        return
+    entry = _get_entry(hass)
+    options = dict(entry.options)
+    options["rewards"] = rewards
+    hass.config_entries.async_update_entry(entry, options=options)
+    connection.send_result(msg["id"], {"success": True, "rewards": rewards})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_REDEEM,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("reward_id"): str,
+})
+@websocket_api.async_response
+async def ws_kid_redeem(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Redeem a reward with the wallet balance (PIN checked)."""
+    result, settings, kids = _verify_kid(hass, msg["kid_id"], msg.get("pin"))
+    if not result["success"]:
+        connection.send_result(msg["id"], result)
+        return
+    connection.send_result(msg["id"], await _async_redeem(hass, msg["kid_id"], msg["reward_id"], settings, kids))
+
+
+async def _async_redeem(hass: HomeAssistant, kid_id: str, reward_id: str, settings: dict, kids: dict) -> dict:
+    """Deduct a reward from the wallet and park it for the parents (shared by kid_redeem / my_redeem)."""
+    reward = find_reward(settings.get("rewards"), reward_id)
+    if reward is None:
+        return {"success": False, "error": ERR_UNKNOWN_REWARD}
+    if not reward.get("active", True):
+        return {"success": False, "error": ERR_REWARD_INACTIVE}
+    age = kid_age(kids.get(kid_id), dt_util.now().date())
+    if reward.get("min_age", 0) > 0 and age is not None and age < reward["min_age"]:
+        return {"success": False, "error": ERR_TOO_YOUNG}
+
+    data = hass.data[DOMAIN]["data"]
+    cost = int(reward["cost"])
+    balance = float(data.setdefault("wallet", {}).get(kid_id, 0) or 0)
+    if balance < cost:
+        return {"success": False, "error": ERR_NOT_ENOUGH, "balance": balance}
+
+    # No await between the balance check and the deduction: atomic in the event loop.
+    _wallet_add(data, kid_id, -cost)
+    now = dt_util.utcnow()
+    redemption_id = str(uuid.uuid4())
+    redemptions = data.setdefault("redemptions", {})
+    cutoff = (now - timedelta(days=_REDEMPTION_KEEP_DAYS)).isoformat()
+    for rid in [r for r, v in redemptions.items() if v.get("status") != "pending" and v.get("timestamp", "") < cutoff]:
+        del redemptions[rid]
+    record = {
+        "id": redemption_id, "kid_id": kid_id, "reward_id": reward["id"], "name": reward["name"],
+        "emoji": reward.get("emoji") or "🎁", "cost": cost, "timestamp": now.isoformat(), "status": "pending",
+    }
+    redemptions[redemption_id] = record
+    data["history"].insert(0, {
+        "id": str(uuid.uuid4()), "task_id": "", "task_name": f"{record['emoji']} {record['name']}",
+        "user_id": kid_id, "points": -cost, "timestamp": record["timestamp"], "type": TYPE_REDEEM,
+        "redemption_id": redemption_id, "reward_id": reward["id"],
+    })
+    hass.bus.async_fire(EVENT_REWARD_REQUESTED, {
+        "redemption_id": redemption_id, "kid_id": kid_id, "kid_name": _participant_name(hass, kid_id),
+        "reward_id": reward["id"], "name": record["name"], "emoji": record["emoji"], "cost": cost,
+    })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return {
+        "success": True, "redemption_id": redemption_id, "name": record["name"], "emoji": record["emoji"],
+        "cost": cost, "balance": data["wallet"].get(kid_id, 0),
+    }
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_KID_SET_GOAL,
+    vol.Required("kid_id"): str,
+    vol.Optional("pin"): vol.Any(None, str),
+    vol.Required("reward_id"): vol.Any(None, str),
+})
+@websocket_api.async_response
+async def ws_kid_set_goal(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Set (or clear with ``null``) the savings goal of a kid (PIN checked)."""
+    result, settings, _kids = _verify_kid(hass, msg["kid_id"], msg.get("pin"))
+    if not result["success"]:
+        connection.send_result(msg["id"], result)
+        return
+    connection.send_result(msg["id"], _set_goal(hass, msg["kid_id"], msg["reward_id"], settings))
+
+
+def _set_goal(hass: HomeAssistant, kid_id: str, reward_id: str | None, settings: dict) -> dict:
+    if reward_id is not None and find_reward(settings.get("rewards"), reward_id) is None:
+        return {"success": False, "error": ERR_UNKNOWN_REWARD}
+    kids = copy.deepcopy(settings.get("kids") or {})
+    if reward_id is None:
+        kids[kid_id].pop("goal_reward", None)
+    else:
+        kids[kid_id]["goal_reward"] = reward_id
+    _update_kids(hass, kids)
+    return {"success": True, "goal_reward": reward_id}
+
+
+async def _async_resolve_redemption(hass: HomeAssistant, redemption_id: str, approve: bool) -> dict | None:
+    """Approve (mark done) or reject (refund) a pending redemption; ``None`` if unknown / handled."""
+    data = hass.data[DOMAIN]["data"]
+    record = data.get("redemptions", {}).get(redemption_id)
+    if record is None or record.get("status") != "pending":
+        return None
+    # Status flipped before any await: idempotent for racing card / push taps.
+    record["status"] = "done" if approve else "rejected"
+    record["resolved_at"] = dt_util.utcnow().isoformat()
+    if not approve:
+        cost = float(record.get("cost", 0))
+        _wallet_add(data, record["kid_id"], cost)
+        label = "Zurückerstattet: " if _lang(hass) == "de" else "Refunded: "
+        data["history"].insert(0, {
+            "id": str(uuid.uuid4()), "task_id": "", "task_name": f"{record.get('emoji', '')} {record.get('name', '')}".strip(),
+            "user_id": record["kid_id"], "points": cost, "timestamp": record["resolved_at"], "type": TYPE_REFUND,
+            "redemption_id": redemption_id, "reason": label + str(record.get("name", "")),
+        })
+    hass.bus.async_fire(EVENT_REWARD_RESOLVED, {
+        "redemption_id": redemption_id, "result": "approved" if approve else "rejected",
+        "kid_id": record["kid_id"], "kid_name": _participant_name(hass, record["kid_id"]),
+        "name": record.get("name"), "emoji": record.get("emoji"), "cost": record.get("cost"),
+    })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    return record
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_REDEMPTION_RESOLVE,
+    vol.Required("redemption_id"): str,
+    vol.Required("approve"): bool,
+})
+@websocket_api.async_response
+async def ws_redemption_resolve(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Approve or reject a pending reward redemption (admin / manager / parent)."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
+        return
+    record = await _async_resolve_redemption(hass, msg["redemption_id"], msg["approve"])
+    if record is None:
+        connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
+        return
+    connection.send_result(msg["id"], {"success": True, "status": record["status"]})
 
 
 # ---------------------------------------------------------------------------
@@ -2777,6 +2984,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data.setdefault("pending", {})
     data.setdefault("birthday_handled", {})
     data.setdefault("birthday_levelup", {})
+    # Reward shop: the wallet survives the monthly reset. First start with the
+    # shop: already earned points of the month become the starting balance.
+    if not isinstance(data.get("wallet"), dict):
+        data["wallet"] = {
+            uid: round(max(0.0, float(pts or 0)), 1) for uid, pts in (data.get("points") or {}).items()
+        }
+    data.setdefault("redemptions", {})
 
     # Additive migration (kids mode): every task/template gets a valid
     # category ("basis" | "bonus" | "auftrag") and a min_age. Nothing is removed.
@@ -2861,6 +3075,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "monthly_history": {}, "current_month": dt_util.now().strftime("%Y-%m"), 
             "current_period_start": dt_util.utcnow().isoformat(),
             "templates": {}, "pending": {}, "birthday_handled": {}, "birthday_levelup": {},
+            "wallet": {}, "redemptions": {},
         }
         hass.data[DOMAIN]["data"] = new_data
         
@@ -2901,6 +3116,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if u_id not in data["points"]: 
                 data["points"][u_id] = 0
             data["points"][u_id] += points_per_user
+            _wallet_add(data, u_id, points_per_user)
             
             history_entry = {
                 "id": str(uuid.uuid4()), 
@@ -3289,6 +3505,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_set_parents)
     websocket_api.async_register_command(hass, ws_parent_task_action)
     websocket_api.async_register_command(hass, ws_parent_complete_for)
+    websocket_api.async_register_command(hass, ws_set_rewards)
+    websocket_api.async_register_command(hass, ws_kid_redeem)
+    websocket_api.async_register_command(hass, ws_kid_set_goal)
+    websocket_api.async_register_command(hass, ws_redemption_resolve)
     
     # Register static path for frontend cards
     frontend_path = hass.config.path(f"custom_components/{DOMAIN}/www")
