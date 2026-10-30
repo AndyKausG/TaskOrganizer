@@ -347,3 +347,16 @@ async def test_monthly_reset_resolves_names_without_user(hass, hass_ws_client, s
     await hass.services.async_call(DOMAIN, "reset_monthly_points", {}, blocking=True)
     await hass.async_block_till_done()
     assert events and events[0].data["winner_name"] == "Anna"
+
+
+async def test_kid_cannot_finish_with_open_steps(hass, hass_ws_client, setup):
+    ws = await hass_ws_client(hass)
+    await _make_kid(ws, ANNA, pin="1234")
+    t = await _add_task(ws, assignees=[ANNA], subtasks=[
+        {"title": "a", "done": False}, {"title": "pill", "done": False, "optional": True}])
+    res = (await _call(ws, "task_organizer/kid_complete_task", task_id=t, kid_id=ANNA, pin="1234"))["result"]
+    assert res == {"success": False, "error": "steps_open"}
+    data = hass.data[DOMAIN]["data"]
+    data["tasks"][t]["subtasks"][0]["done"] = True       # optional step stays open
+    res = (await _call(ws, "task_organizer/kid_complete_task", task_id=t, kid_id=ANNA, pin="1234"))["result"]
+    assert res["success"] is True

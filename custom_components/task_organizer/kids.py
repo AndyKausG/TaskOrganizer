@@ -63,6 +63,7 @@ ERR_UNKNOWN_KID = "unknown_kid"
 ERR_NOT_FOUND = "not_found"
 ERR_NOT_YET = "not_yet"
 ERR_TOO_LATE = "too_late"
+ERR_STEPS_OPEN = "steps_open"
 
 # Window states of a task (see window_state)
 WINDOW_OPEN = "open"
@@ -800,6 +801,17 @@ def bonus_needs_routine(task: dict) -> bool:
         and bool(task.get("requires_routine", False))
         and not task.get("adhoc")
     )
+
+
+def open_required_steps(task: dict) -> list[dict]:
+    """Subtasks that still have to be ticked before a kid may finish the task.
+
+    Subtasks marked ``optional`` (e.g. a medication reminder) never block.
+    """
+    return [
+        st for st in (task.get("subtasks") or [])
+        if isinstance(st, dict) and not st.get("done") and not st.get("optional")
+    ]
 
 
 def check_eligibility(

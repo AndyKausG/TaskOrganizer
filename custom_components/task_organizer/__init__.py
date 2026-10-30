@@ -87,6 +87,8 @@ from .const import (
 )
 from . import kids_catalog
 from .kids import (
+    ERR_STEPS_OPEN,
+    open_required_steps,
     DEFAULT_CLAIM_MINUTES,
     ERR_NOT_FOUND,
     ERR_NOT_YET,
@@ -1157,6 +1159,10 @@ async def ws_kid_complete_task(hass: HomeAssistant, connection: websocket_api.Ac
     error, ctx = _kid_task_precheck(hass, msg)
     if error:
         connection.send_result(msg["id"], error)
+        return
+
+    if open_required_steps(ctx["task"]):
+        connection.send_result(msg["id"], {"success": False, "error": ERR_STEPS_OPEN})
         return
 
     # No await between the check above and the completion: atomic in the event loop.

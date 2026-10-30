@@ -55,7 +55,8 @@ const I18N_KIDS = {
     from_time: "from {t}", countdown: "{n} min to go", window_over: "Over for today - new chance tomorrow",
     until_time: "until {t}",
     err_not_yet: "Not yet! This task starts a little later.",
-    err_too_late: "Too late for today. New chance tomorrow!",
+    err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!",
+    steps_left: "Still {n} step(s) to tick",
     replaced_today: "Today: {a} instead of {b}"
   },
   de: {
@@ -94,7 +95,8 @@ const I18N_KIDS = {
     from_time: "ab {t}", countdown: "noch {n} min", window_over: "Heute vorbei – morgen neue Chance",
     until_time: "bis {t}",
     err_not_yet: "Noch nicht dran! Die Aufgabe startet etwas später.",
-    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!",
+    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!",
+    steps_left: "Noch {n} Schritt(e) abhaken",
     replaced_today: "Heute: {a} statt {b}"
   }
 };
@@ -1481,7 +1483,10 @@ class TaskOrganizerKids extends HTMLElement {
     } else if (mode === 'bonus' && !claimedByMe) {
       action = `<button class="btn btn-claim" data-action="claim" data-task="${escKids(task.id)}" ${busy}>${escKids(this.localize('claim'))}</button>`;
     } else {
-      action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy}>${escKids(this.localize('done_btn'))} ✅</button>`;
+      // "Fertig!" only once every required step is ticked (optional steps never block)
+      const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
+      action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
+      if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
     }
 
     const subs = mode !== 'window' && Array.isArray(task.subtasks) && task.subtasks.length
@@ -1625,6 +1630,7 @@ class TaskOrganizerKids extends HTMLElement {
       .btn { min-height: 76px; min-width: 150px; padding: 0 22px; border-radius: 38px; font-size: 28px; font-weight: 800; color: #fff; box-shadow: 0 4px 0 rgba(0,0,0,0.25); transition: transform 0.1s; }
       .btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.25); }
       .btn:disabled { opacity: 0.55; }
+      .btn-done:disabled { background: #9E9E9E; box-shadow: none; }
       .btn-done { background: var(--k-good); }
       .btn-claim { background: var(--k-blue); }
       .state-chip { width: 76px; height: 76px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; line-height: 1; }

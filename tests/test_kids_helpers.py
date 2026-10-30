@@ -589,3 +589,12 @@ def test_skipped_by_completion():
     blitz["due_date"] = (NOW + timedelta(days=1)).isoformat()               # already done today
     deep["due_date"] = NOW.isoformat()
     assert kids.skipped_by_completion(deep, tasks, NOW) == []
+
+
+def test_open_required_steps():
+    t = {"subtasks": [{"title": "a", "done": True}, {"title": "b", "done": False},
+                      {"title": "pill", "done": False, "optional": True}]}
+    assert [s["title"] for s in kids.open_required_steps(t)] == ["b"]
+    t["subtasks"][1]["done"] = True
+    assert kids.open_required_steps(t) == []
+    assert kids.open_required_steps({}) == []
