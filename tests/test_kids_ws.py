@@ -232,17 +232,16 @@ async def test_eligibility_errors(hass, hass_ws_client, setup):
     # unknown task
     assert (await complete("nope"))["error"] == "not_found"
 
-    # Premack: open basis task blocks bonus
+    # Opt-in per bonus task: an open basis task blocks a "requires_routine" bonus
     basis = await _add_task(ws, name="Basis", assignees=[ANNA], category="basis")
-    bonus = await _add_task(ws, name="Bonus", category="bonus", interval=365)
+    bonus = await _add_task(ws, name="Bonus", category="bonus", interval=365, requires_routine=True)
     assert (await complete(bonus))["error"] == "basis_open"
     assert (await _call(ws, "task_organizer/kid_claim_task", task_id=bonus, kid_id=ANNA, pin="1234"))["result"]["error"] == "basis_open"
-    # ... unless disabled in the settings
-    await _call(ws, "task_organizer/update_settings", settings={"bonus_requires_basis": False})
-    await hass.async_block_till_done()
-    res = await complete(bonus)
-    assert res["success"]
-    await _call(ws, "task_organizer/update_settings", settings={"bonus_requires_basis": True})
+    # ... a bonus without the opt-in is free and its points are booked at once
+    free = await _add_task(ws, name="Free bonus", category="bonus", interval=365)
+    before = data["points"].get(ANNA, 0)
+    res = await complete(free)
+    assert res["success"] and data["points"][ANNA] > before
     # completing the basis task unlocks bonus
     assert (await complete(basis))["success"]
     await hass.services.async_call(DOMAIN, "set_task_due_by_name", {"task_name": "Bonus"}, blocking=True)

@@ -192,7 +192,7 @@ Use it in a dashboard view of type `panel` (full screen). A complete example wit
 Approvals, bonus points and deductions for the parents, designed for phones. See [Parent approval](#parent-approval).
 
 ## Kids mode
-Kids mode turns TaskOrganizer into a motivating family system for kids (designed for ages 6-12): immediate visual rewards, personal progress instead of ranking siblings, one cooperative family goal and "first duties, then bonus".
+Kids mode turns TaskOrganizer into a motivating family system for kids (designed for ages 6-12): immediate visual rewards, personal progress instead of ranking siblings, one cooperative family goal and optional "first duties, then bonus".
 
 **Typical setup:** one wall tablet (e.g. an Android tablet with Fully Kiosk Browser) that is permanently logged in as a single Home Assistant user (e.g. "Tablet", not an admin) and shows the kids card. The parents use their own admin users on their phones.
 
@@ -267,7 +267,7 @@ A bonus task can open itself when a Home Assistant entity changes to a state, wi
 * **PIN pad:** a tap on a tile opens a big PIN pad (skipped for kids without a PIN). Five wrong attempts lock that kid for 60 seconds.
 * **Kid view:** "My tasks" (due or overdue `basis` and `auftrag` tasks assigned to the kid) and "Bonus" (due `bonus` tasks the kid is old enough for). Subtasks are ticked with a tap. "Done!" completes the task for the kid with 100 % of the points; bonus tasks are first reserved with "Take it".
 * **Reward:** full-screen confetti, a short cheerful sound and "+N points!". Afterwards (and after `timeout` seconds without a touch) the card returns to the home screen.
-* **Duties first (Premack principle):** while a kid still has due `basis` tasks, the bonus tasks are shown locked ("Your tasks first!"). You can switch this off in the settings card (Kids section: "Bonus only after the kid's duties are done").
+* **Bonus tasks are free by default.** Per bonus task you can opt in to "duties first" (`requires_routine`, task/template editor: "Bonus only after the kid's due duties"): such a bonus is shown locked ("Your tasks first!") while the kid has due `basis` tasks open. Only duties inside their time window count (an evening mission from 17:00 does not lock a bonus in the morning). Spontaneous (ad-hoc) bonus tasks are never locked. Points are booked immediately on completion (unless the task needs parent approval).
 * **Reservations:** a claimed bonus task is reserved for `claim_minutes` (default 10) minutes; other kids see who took it. Completing the task clears the reservation.
 
 ### Websocket API (used by the kids card)
@@ -278,7 +278,7 @@ All of these return `{"success": true, ...}` or `{"success": false, "error": <co
 | :--- | :--- |
 | `task_organizer/kid_verify_pin` | `kid_id`, `pin`. Checks the PIN (a kid without PIN is always accepted). |
 | `task_organizer/kid_claim_task` | `task_id`, `kid_id`, `pin`. Reserves a task for the kid. |
-| `task_organizer/kid_complete_task` | `task_id`, `kid_id`, `pin`. Checks the PIN and the eligibility (task due and not paused, kid assigned, old enough, not claimed by another kid, duties first) and awards the points. |
+| `task_organizer/kid_complete_task` | `task_id`, `kid_id`, `pin`. Checks the PIN and the eligibility (task due and not paused, kid assigned, old enough, not claimed by another kid, duties first for bonus tasks with `requires_routine`) and awards the points. |
 | `task_organizer/set_kid_profile` | **Admin only.** `participant_id`, `avatar`, `color` (hex), `birth_year`, optional `pin` (4 digits, empty = keep) and `clear_pin`. |
 | `task_organizer/delete_kid_profile` | **Admin only.** `participant_id`. |
 

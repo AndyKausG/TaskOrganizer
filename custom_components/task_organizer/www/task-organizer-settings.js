@@ -55,9 +55,9 @@ const I18N_SETTINGS = {
     birthday_title: "Birthday", birthday_bonus_points: "Birthday bonus (points, 0 = off)",
     birthday_duty_free: "Duty-free birthday: skip the kid's own due tasks",
     family_goal: "Family goal", family_goal_points: "Points per month (all kids together)", family_goal_reward: "Reward", family_goal_reward_ph: "e.g. Ice cream trip",
-    bonus_requires_basis: "Bonus only after the kid's duties are done", claim_minutes: "Bonus reservation (minutes)",
+claim_minutes: "Bonus reservation (minutes)",
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
-    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval",
+    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
     expire_missed: "Missed duties expire at midnight (daily duties right away, weekly ones after 2 days) - no points, no deduction",
     wizard_btn: "🚀 Kids mode quick start", wizard_hint: "Proposes an age-appropriate set of tasks, points and goals for your kids and creates everything in one click.",
@@ -117,9 +117,9 @@ const I18N_SETTINGS = {
     birthday_title: "Geburtstag", birthday_bonus_points: "Geburtstags-Bonus (Punkte, 0 = aus)",
     birthday_duty_free: "Pflichtfreier Geburtstag: eigene fällige Aufgaben überspringen",
     family_goal: "Familienziel", family_goal_points: "Punkte pro Monat (alle Kinder zusammen)", family_goal_reward: "Belohnung", family_goal_reward_ph: "z.B. Eis essen gehen",
-    bonus_requires_basis: "Bonus erst nach den Pflichten des Kindes", claim_minutes: "Bonus-Reservierung (Minuten)",
+claim_minutes: "Bonus-Reservierung (Minuten)",
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
-    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig",
+    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
     expire_missed: "Verpasste Pflichten verfallen um Mitternacht (tägliche sofort, wöchentliche nach 2 Tagen) – ohne Punkte, ohne Abzug",
     wizard_btn: "🚀 Kindermodus-Schnellstart", wizard_hint: "Schlägt altersgerechte Aufgaben, Punkte und Ziele für eure Kinder vor und legt alles mit einem Klick an.",
@@ -524,7 +524,6 @@ class TaskOrganizerSettings extends HTMLElement {
         points: Math.max(0, parseInt(fgPoints.value) || 0),
         reward: (this.shadowRoot.getElementById('fg-reward')?.value || '').trim()
       };
-      newSettings.bonus_requires_basis = !!this.shadowRoot.getElementById('bonus-requires-basis')?.checked;
       newSettings.claim_minutes = Math.max(1, parseInt(this.shadowRoot.getElementById('claim-minutes')?.value) || 10);
       const num = (id, lo, hi, def) => {
         const v = parseFloat(this.shadowRoot.getElementById(id)?.value);
@@ -780,6 +779,7 @@ class TaskOrganizerSettings extends HTMLElement {
       category: this.shadowRoot.getElementById('tmpl-category').value || 'basis',
       min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('tmpl-min-age').value) || 0)),
       requires_approval: !!this.shadowRoot.getElementById('tmpl-approval')?.checked,
+      requires_routine: !!this.shadowRoot.getElementById('tmpl-routine')?.checked,
       available_from: this.shadowRoot.getElementById('tmpl-available-from')?.value || '',
       available_until: this.shadowRoot.getElementById('tmpl-available-until')?.value || '',
       assignees: assignees,
@@ -1094,7 +1094,6 @@ class TaskOrganizerSettings extends HTMLElement {
     const fgPointsVal = fd.points !== undefined ? fd.points : (fg.points || '');
     const fgRewardVal = fd.reward !== undefined ? fd.reward : (fg.reward || '');
     const claimVal = fd.claim !== undefined ? fd.claim : (this.settings.claim_minutes || 10);
-    const premackVal = fd.premack !== undefined ? fd.premack : this.settings.bonus_requires_basis !== false;
     const esc = (v) => String(v === undefined || v === null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
     const rows = Object.entries(this.users).map(([uid, name]) => {
@@ -1177,9 +1176,6 @@ class TaskOrganizerSettings extends HTMLElement {
                   <input type="number" id="claim-minutes" min="1" max="240" value="${esc(claimVal)}">
                 </label>
               </div>
-              <ha-formfield label="${this.localize('bonus_requires_basis')}">
-                <ha-switch id="bonus-requires-basis" ${premackVal ? 'checked' : ''}></ha-switch>
-              </ha-formfield>
               <ha-formfield label="${this.localize('expire_missed')}">
                 <ha-switch id="expire-missed" ${(fd.expire_missed !== undefined ? fd.expire_missed : this.settings.expire_missed !== false) ? 'checked' : ''}></ha-switch>
               </ha-formfield>
@@ -1450,8 +1446,6 @@ class TaskOrganizerSettings extends HTMLElement {
     if (bdayFree) bdayFree.addEventListener('change', (ev) => { this._familyDraft.bday_free = !!ev.target.checked; });
     const expire = root.getElementById('expire-missed');
     if (expire) expire.addEventListener('change', (ev) => { this._familyDraft.expire_missed = !!ev.target.checked; });
-    const premack = root.getElementById('bonus-requires-basis');
-    if (premack) premack.addEventListener('change', (ev) => { this._familyDraft.premack = !!ev.target.checked; });
   }
 
   /**
@@ -1681,6 +1675,9 @@ class TaskOrganizerSettings extends HTMLElement {
               </div>
               <ha-formfield label="${this.localize('approval_lbl')}">
                   <ha-switch id="tmpl-approval" ${template?.requires_approval ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
+              <ha-formfield label="${this.localize('routine_lbl')}">
+                  <ha-switch id="tmpl-routine" ${template?.requires_routine ? 'checked' : ''}></ha-switch>
               </ha-formfield>
 
               <div>

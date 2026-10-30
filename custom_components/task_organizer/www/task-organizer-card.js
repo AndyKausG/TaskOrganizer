@@ -41,7 +41,7 @@ const I18N_CARD = {
     filter_by_placeholder: "comma separated, e.g. !paused, due",
     search_btn: "Search", add_task_btn: "Add Task", clear_btn: "Clear",
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
-    min_age_lbl: "Minimum age (0 = any)", approval_lbl: "Requires parent approval",
+    min_age_lbl: "Minimum age (0 = any)", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
     help_link: "Configuration Guide (README)"
   },
@@ -82,7 +82,7 @@ const I18N_CARD = {
     filter_by_placeholder: "Kommagetrennt, z.B. !paused, due",
     search_btn: "Suchen", add_task_btn: "Aufgabe hinzufügen", clear_btn: "Leeren",
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
-    min_age_lbl: "Mindestalter (0 = egal)", approval_lbl: "Freigabe durch Eltern nötig",
+    min_age_lbl: "Mindestalter (0 = egal)", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
     help_link: "Konfigurations-Handbuch (README)"
   }
@@ -999,7 +999,7 @@ class TaskOrganizerCard extends HTMLElement {
             this.shadowRoot.getElementById('f-interval').value = (t.interval !== undefined) ? t.interval : 7;
         }
         if (this.shadowRoot.getElementById('f-complexity')) this.shadowRoot.getElementById('f-complexity').value = t.complexity;
-        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until);
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
         this._subtasks = t.subtasks ? [...t.subtasks] : [];
         this._currentIcon = t.icon || "mdi:broom";
         
@@ -1125,7 +1125,9 @@ class TaskOrganizerCard extends HTMLElement {
    * @param {number} minAge - Minimum age in years (0 = any).
    * @param {boolean} requiresApproval - A parent has to approve completions by kids.
    */
-  _setCategoryFields(category, minAge, requiresApproval = false, availableFrom = null, availableUntil = null) {
+  _setCategoryFields(category, minAge, requiresApproval = false, availableFrom = null, availableUntil = null, requiresRoutine = false) {
+    const routine = this.shadowRoot.getElementById('f-routine');
+    if (routine) routine.checked = !!requiresRoutine;
     const from = this.shadowRoot.getElementById('f-available-from');
     const until = this.shadowRoot.getElementById('f-available-until');
     if (from) from.value = availableFrom || '';
@@ -1250,6 +1252,7 @@ class TaskOrganizerCard extends HTMLElement {
       category: this.shadowRoot.getElementById('f-category')?.value || "basis",
       min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('f-min-age')?.value) || 0)),
       requires_approval: !!this.shadowRoot.getElementById('f-approval')?.checked,
+      requires_routine: !!this.shadowRoot.getElementById('f-routine')?.checked,
       // time window for kids ("" = no limit); the backend stores an empty value as "no limit"
       available_from: this.shadowRoot.getElementById('f-available-from')?.value || "",
       available_until: this.shadowRoot.getElementById('f-available-until')?.value || "",
@@ -1474,6 +1477,9 @@ class TaskOrganizerCard extends HTMLElement {
                     <ha-formfield label="${this.localize('approval_lbl')}">
                         <ha-switch id="f-approval"></ha-switch>
                     </ha-formfield>
+                    <ha-formfield label="${this.localize('routine_lbl')}">
+                        <ha-switch id="f-routine"></ha-switch>
+                    </ha-formfield>
 
                     <div>
                         <label class="form-label">${this.localize('assignees_lbl')}</label>
@@ -1663,7 +1669,7 @@ class TaskOrganizerCard extends HTMLElement {
         this.shadowRoot.getElementById('f-area').value = t.area || '';
         this.shadowRoot.getElementById('f-complexity').value = t.complexity || 5;
         this.shadowRoot.getElementById('f-icon-picker').value = t.icon || 'mdi:broom';
-        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until);
+        this._setCategoryFields(t.category, t.min_age, t.requires_approval, t.available_from, t.available_until, t.requires_routine);
         this.shadowRoot.getElementById('template-suggestions').innerHTML = '';
         
         this._subtasks = t.subtasks ? JSON.parse(JSON.stringify(t.subtasks)) : [];

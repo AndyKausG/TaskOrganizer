@@ -255,10 +255,15 @@ def test_eligibility_claims():
 
 def test_eligibility_premack():
     basis = _task(category="basis", assignees=["k"])
-    bonus = _task(category="bonus")
+    bonus = _task(category="bonus", requires_routine=True)
     tasks = {"a": basis, "b": bonus}
     assert _elig(bonus, tasks=tasks) == "basis_open"
-    assert _elig(bonus, tasks=tasks, settings={"bonus_requires_basis": False}) is None
+    # default: a bonus is always free
+    free = _task(category="bonus")
+    assert _elig(free, tasks={"a": basis, "b": free}) is None
+    # spontaneous (ad-hoc) bonus tasks are never locked, even when flagged
+    adhoc = _task(category="bonus", requires_routine=True, adhoc=True)
+    assert _elig(adhoc, tasks={"a": basis, "b": adhoc}) is None
     # basis of another kid does not block
     other = _task(category="basis", assignees=["o"])
     assert _elig(bonus, tasks={"a": other, "b": bonus}) is None
@@ -274,7 +279,7 @@ def test_eligibility_premack():
 
 def test_premack_ignores_basis_tasks_kid_is_too_young_for():
     impossible = _task(category="basis", assignees=["k"], min_age=12)
-    bonus = _task(category="bonus")
+    bonus = _task(category="bonus", requires_routine=True)
     tasks = {"a": impossible, "b": bonus}
     # 10 year old kid cannot do the basis task -> it must not block the bonus
     assert _elig(bonus, profile=_kid(2016), tasks=tasks) is None
@@ -473,7 +478,7 @@ def test_window_aware_eligibility_and_premack():
     assert kids.check_eligibility(evening, "k", _kid(), tasks, {}, _at(22)) == "too_late"
     assert kids.check_eligibility(evening, "k", _kid(), tasks, {}, _at(18)) is None
     # outside the window the task does not count as open: the bonus is not blocked
-    bonus = _task(category="bonus")
+    bonus = _task(category="bonus", requires_routine=True)
     assert kids.check_eligibility(bonus, "k", _kid(), {**tasks, "b": bonus}, {}, now) is None
     assert kids.check_eligibility(bonus, "k", _kid(), {**tasks, "b": bonus}, {}, _at(18)) == "basis_open"
     assert kids.check_eligibility(bonus, "k", _kid(), {**tasks, "b": bonus}, {}, _at(22)) is None

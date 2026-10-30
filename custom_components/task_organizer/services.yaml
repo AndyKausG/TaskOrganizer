@@ -94,6 +94,12 @@ add_task:
       required: false
       selector:
         boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
     available_from:
       name: Available from (Optional)
       description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
@@ -244,6 +250,12 @@ edit_task_by_name:
       required: false
       selector:
         boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
     available_from:
       name: Available from (Optional)
       description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
@@ -342,6 +354,12 @@ add_template:
     requires_approval:
       name: Requires parent approval (Optional)
       description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
       required: false
       selector:
         boolean:
@@ -460,6 +478,12 @@ edit_template_by_name:
     requires_approval:
       name: Requires parent approval (Optional)
       description: Kids mode - a completion by a kid only counts after a parent approved it.
+      required: false
+      selector:
+        boolean:
+    requires_routine:
+      name: Bonus only after duties (Optional)
+      description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
       required: false
       selector:
         boolean:

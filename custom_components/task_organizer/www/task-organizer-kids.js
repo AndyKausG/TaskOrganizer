@@ -595,8 +595,13 @@ class TaskOrganizerKids extends HTMLElement {
     return this._openDuties(kid).filter(t => this._category(t) === 'basis').length;
   }
 
-  _bonusLocked(kid) {
-    return this.settings.bonus_requires_basis !== false && this._basisOpenCount(kid) > 0;
+  /**
+   * A bonus task is locked only when it opted in ("requires_routine"), it is
+   * not a spontaneous (ad-hoc) bonus and the kid has due duties inside their
+   * time window open. Same rule as the backend (kids.bonus_needs_routine).
+   */
+  _bonusLocked(task, kid) {
+    return !!task.requires_routine && !task.adhoc && this._basisOpenCount(kid) > 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -1266,7 +1271,6 @@ class TaskOrganizerKids extends HTMLElement {
     if (!kid) return this._renderHome();
     const duties = kid.duties;
     const bonus = this._bonusFor(kid);
-    const locked = this._bonusLocked(kid);
     const persons = {};
     this._kids().forEach(k => { persons[k.id] = k; });
 
@@ -1276,7 +1280,7 @@ class TaskOrganizerKids extends HTMLElement {
       : `<div class="empty-state small">🎉 ${escKids(this.localize('no_tasks'))}</div>`)
       + this._renderWaiting(waiting) + this._renderPrivate(kid);
     const bonusHtml = bonus.length
-      ? bonus.map(t => this._renderTask(t, kid, locked ? 'locked' : 'bonus', persons)).join('')
+      ? bonus.map(t => this._renderTask(t, kid, this._bonusLocked(t, kid) ? 'locked' : 'bonus', persons)).join('')
       : `<div class="empty-state small">😴 ${escKids(this.localize('no_bonus'))}</div>`;
 
     return `

@@ -134,6 +134,7 @@ def migrate_task_like(item: dict) -> None:
     item["category"] = normalize_category(item.get("category"))
     item["min_age"] = normalize_min_age(item.get("min_age", 0))
     item["requires_approval"] = bool(item.get("requires_approval", False))
+    item["requires_routine"] = bool(item.get("requires_routine", False))
     item["available_from"] = normalize_time(item.get("available_from"))
     item["available_until"] = normalize_time(item.get("available_until"))
 
@@ -734,6 +735,20 @@ def _too_young(task: dict, age: int | None) -> bool:
     return min_age > 0 and age is not None and age < min_age
 
 
+def bonus_needs_routine(task: dict) -> bool:
+    """True when a bonus task is only available after the kid's due duties.
+
+    Opt-in per task (``requires_routine``, default off); spontaneous (ad-hoc)
+    bonus tasks are never locked. Only duties that are due *and* inside their
+    time window count (see ``open_basis_tasks_for``).
+    """
+    return (
+        normalize_category(task.get("category")) == "bonus"
+        and bool(task.get("requires_routine", False))
+        and not task.get("adhoc")
+    )
+
+
 def check_eligibility(
     task: dict,
     kid_id: str,
@@ -766,11 +781,7 @@ def check_eligibility(
     if claim_active(task, now) and task.get("claimed_by") != kid_id:
         return ERR_CLAIMED
 
-    if (
-        settings.get("bonus_requires_basis", True)
-        and normalize_category(task.get("category")) == "bonus"
-        and open_basis_tasks_for(tasks, kid_id, now, overdue_days, age)
-    ):
+    if bonus_needs_routine(task) and open_basis_tasks_for(tasks, kid_id, now, overdue_days, age):
         return ERR_BASIS_OPEN
 
     return None

@@ -138,13 +138,16 @@ async def test_locked_basis_task_does_not_block_bonus(hass, hass_ws_client, setu
     freezer.move_to(NOON)
     await _make_kid(ws)
     await _add_task(ws, assignees=[ANNA], available_from="17:00", available_until="21:00")
-    bonus = await _add_task(ws, category="bonus")
+    bonus = await _add_task(ws, category="bonus", requires_routine=True)
     # the evening mission is not open yet -> the bonus is not blocked (Premack rule)
     assert (await _kid_do(ws, "kid_claim_task", bonus))["success"] is True
     # inside the window it blocks again
     freezer.move_to(NOON + timedelta(hours=7))
-    other = await _add_task(ws, category="bonus")
+    other = await _add_task(ws, category="bonus", requires_routine=True)
     assert (await _kid_do(ws, "kid_claim_task", other))["error"] == "basis_open"
+    # a bonus without the opt-in stays free, also inside the window
+    free = await _add_task(ws, category="bonus")
+    assert (await _kid_do(ws, "kid_claim_task", free))["success"] is True
 
 
 # ---------------------------------------------------------------------------
