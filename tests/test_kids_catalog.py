@@ -342,3 +342,60 @@ def test_newly_unlocked_replaces_outgrown_entries():
     assert "Empty the dryer + fold" not in unknown and "Take out the trash" in unknown
     assert kc.newly_unlocked(8, 8, FEATURES, "de") == []
     assert [e["key"] for e in kc.newly_unlocked(9, 10, [], "de")] == ["bottles", "windows", "sink"]
+
+
+# ---------------------------------------------------------------------------
+# default time windows, "replaced by" and the spread of weekly duties
+# ---------------------------------------------------------------------------
+
+WINDOWS = {
+    "morning": ("05:00", "10:00"), "evening": ("17:00", "21:00"),
+    "room_blitz": ("14:00", "19:30"), "room_blitz_small": ("14:00", "19:30"),
+    "table_set": ("17:00", "19:30"), "table_clear": ("18:00", "20:30"),
+    "dishwasher_load": ("18:00", "21:00"), "plants": ("14:00", "19:00"),
+    "own_laundry": ("14:00", "19:30"), "room_deep": ("09:00", "18:00"),
+    "bedding": ("09:00", "18:00"), "garden": ("10:00", "18:00"),
+    "driveway": ("10:00", "18:00"), "pet_feed": ("07:00", "19:00"),
+    "pet_clean": ("10:00", "18:00"),
+}
+
+
+def test_all_basis_tasks_have_a_default_window():
+    for entry in kc.CATALOG:
+        if entry["category"] == "basis":
+            assert (entry["available_from"], entry["available_until"]) == WINDOWS[entry["key"]], entry["key"]
+    p = kc.build_proposal(KIDS, FEATURES + ["pets"], FIRST, "normal", current_year=2026)
+    for k in p["kids"]:
+        for t in k["tasks"]:
+            assert (t["available_from"], t["available_until"]) == WINDOWS[t["catalog_key"]]
+
+
+def test_blitz_is_replaced_by_room_deep():
+    assert kc.CATALOG_BY_KEY["room_blitz"]["replaced_by"] == "room_deep"
+    assert kc.CATALOG_BY_KEY["room_blitz_small"]["replaced_by"] == "room_deep"
+    assert kc.CATALOG_BY_KEY["room_deep"]["replaced_by"] is None
+    p = proposal()
+    for k in p["kids"]:
+        for t in k["tasks"]:
+            expected = "room_deep" if t["catalog_key"].startswith("room_blitz") else None
+            assert t["replaced_by_key"] == expected
+
+
+def test_weekly_tasks_of_a_kid_are_spread_over_the_week():
+    p = proposal(date(2026, 10, 29))                      # Thursday, household day Saturday
+    anna = {t["catalog_key"]: t["due_date"] for t in kid(p, ANNA)["tasks"]}
+    assert anna["room_deep"] == "2026-10-31"              # household day
+    assert anna["own_laundry"] == "2026-10-30"            # the day before
+    assert anna["bedding"] == "2026-11-01"                # one day after
+    assert len({anna["room_deep"], anna["own_laundry"], anna["bedding"]}) == 3
+    ben = {t["catalog_key"]: t["due_date"] for t in kid(p, BEN)["tasks"]}
+    assert ben["bedding"] == "2026-11-08"                 # bi-weekly alternates by kid
+
+
+def test_spread_never_starts_before_the_start_date():
+    p = proposal(date(2026, 10, 31))                      # start on the household day itself
+    anna = {t["catalog_key"]: t["due_date"] for t in kid(p, ANNA)["tasks"]}
+    assert anna["room_deep"] == "2026-10-31"
+    assert anna["own_laundry"] == "2026-11-06"            # Friday before would be in the past
+    assert anna["bedding"] == "2026-11-01"
+    assert all(t["due_date"] >= "2026-10-31" for t in kid(p, ANNA)["tasks"])

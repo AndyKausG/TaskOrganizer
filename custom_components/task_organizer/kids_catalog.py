@@ -86,6 +86,7 @@ def _entry(
     subtasks: list | None = None, trigger_hint_de: str | None = None,
     trigger_hint_en: str | None = None,
     available_from: str | None = None, available_until: str | None = None,
+    replaced_by: str | None = None, day_offset: int = 0,
 ) -> dict:
     return {
         "key": key, "name_de": name_de, "name_en": name_en, "icon": icon,
@@ -94,6 +95,7 @@ def _entry(
         "mode": mode, "requires": requires, "subtasks": subtasks or [],
         "trigger_hint_de": trigger_hint_de, "trigger_hint_en": trigger_hint_en,
         "available_from": available_from, "available_until": available_until,
+        "replaced_by": replaced_by, "day_offset": day_offset,
     }
 
 
@@ -114,38 +116,38 @@ CATALOG: tuple[dict, ...] = (
            3, 10, 8, 1, "basis", MODE_EACH,
            subtasks=[_st("Boden frei", "Clear the floor"),
                      _st("Spielzeug/Sachen in die Kisten", "Toys/things into the boxes"),
-                     _st("Schreibtisch frei", "Clear the desk")]),
+                     _st("Schreibtisch frei", "Clear the desk")], available_from="14:00", available_until="19:30", replaced_by="room_deep"),
     _entry("room_blitz_small", "Zimmer-Blitz (5 Minuten)", "Room blitz (5 minutes)", "mdi:timer-sand",
            2, 5, 6, 1, "basis", MODE_EACH, max_age=7,
            subtasks=[_st("Boden frei", "Clear the floor"),
-                     _st("Spielzeug in die Kisten", "Toys into the boxes")]),
+                     _st("Spielzeug in die Kisten", "Toys into the boxes")], available_from="14:00", available_until="19:30", replaced_by="room_deep"),
     # --- rotation basis, shared duties ---------------------------------
     _entry("table_set", "Tisch decken", "Set the table", "mdi:silverware-fork-knife", 2, 5, 6, 1,
            "basis", MODE_ROTATION,
-           subtasks=[_st("Teller", "Plates"), _st("Besteck", "Cutlery"), _st("Gläser", "Glasses")]),
+           subtasks=[_st("Teller", "Plates"), _st("Besteck", "Cutlery"), _st("Gläser", "Glasses")], available_from="17:00", available_until="19:30"),
     _entry("table_clear", "Tisch abräumen", "Clear the table", "mdi:table-chair", 2, 5, 6, 1,
-           "basis", MODE_ROTATION),
+           "basis", MODE_ROTATION, available_from="18:00", available_until="20:30"),
     _entry("dishwasher_load", "Spülmaschine einräumen", "Load the dishwasher", "mdi:dishwasher-alert",
-           3, 10, 8, 1, "basis", MODE_ROTATION, requires="dishwasher"),
+           3, 10, 8, 1, "basis", MODE_ROTATION, requires="dishwasher", available_from="18:00", available_until="21:00"),
     _entry("plants", "Pflanzen gießen", "Water the plants", "mdi:watering-can", 2, 5, 6, 7,
-           "basis", MODE_ROTATION),
+           "basis", MODE_ROTATION, available_from="14:00", available_until="19:00"),
     _entry("garden", "Mini-Garten: gießen & Unkraut (15 Min)", "Mini garden: water & weed (15 min)",
-           "mdi:flower", 4, 15, 8, 7, "basis", MODE_ROTATION, requires="garden"),
+           "mdi:flower", 4, 15, 8, 7, "basis", MODE_ROTATION, requires="garden", available_from="10:00", available_until="18:00"),
     _entry("driveway", "Hofeinfahrt kehren", "Sweep the driveway", "mdi:broom", 4, 15, 8, 7,
-           "basis", MODE_ROTATION, requires="driveway"),
+           "basis", MODE_ROTATION, requires="driveway", available_from="10:00", available_until="18:00"),
     _entry("pet_feed", "Tiere füttern", "Feed the pets", "mdi:paw", 2, 5, 6, 1,
-           "basis", MODE_ROTATION, requires="pets"),
+           "basis", MODE_ROTATION, requires="pets", available_from="07:00", available_until="19:00"),
     _entry("pet_clean", "Käfig/Katzenklo sauber machen", "Clean cage/litter box", "mdi:paw-outline",
-           4, 15, 9, 7, "basis", MODE_ROTATION, requires="pets"),
+           4, 15, 9, 7, "basis", MODE_ROTATION, requires="pets", available_from="10:00", available_until="18:00"),
     # --- weekly basis, one task per kid --------------------------------
     _entry("room_deep", "Zimmer gründlich", "Thorough room clean", "mdi:bed-king", 6, 30, 6, 7,
            "basis", MODE_EACH,
            subtasks=[_st("Boden frei", "Clear the floor"), _st("Regal ordnen", "Tidy the shelf"),
-                     _st("Müll raus", "Take out the trash"), _st("Staubsaugen", "Vacuum", 8)]),
+                     _st("Müll raus", "Take out the trash"), _st("Staubsaugen", "Vacuum", 8)], available_from="09:00", available_until="18:00"),
     _entry("own_laundry", "Eigene Wäsche einräumen", "Put away own laundry", "mdi:wardrobe", 3, 10, 6, 7,
-           "basis", MODE_EACH, requires="washer"),
+           "basis", MODE_EACH, requires="washer", available_from="14:00", available_until="19:30", day_offset=-1),
     _entry("bedding", "Bettwäsche abziehen", "Strip the bedding", "mdi:bed-empty", 3, 10, 8, 14,
-           "basis", MODE_EACH),
+           "basis", MODE_EACH, available_from="09:00", available_until="18:00", day_offset=1),
     # --- bonus, one open (unassigned) task -----------------------------
     _entry("dishwasher_unload", "Spülmaschine ausräumen", "Unload the dishwasher", "mdi:dishwasher",
            4, 10, 6, OPEN_INTERVAL, "bonus", MODE_OPEN, requires="dishwasher",
@@ -388,7 +390,9 @@ def build_proposal(
     :param excluded: wizard keys the parent switched off
     :param points: ``{wizard_key: points}`` overrides (1..10)
     :param household_day: weekday (Monday = 0) of the first weekly / bi-weekly
-        duties instead of the start date
+        duties instead of the start date. Weekly duties of one kid are spread
+        around it by the catalog ``day_offset`` (thorough room clean on the
+        household day, own laundry the day before, bedding the day after).
     """
     if isinstance(household_day, bool) or not isinstance(household_day, int) or not 0 <= household_day <= 6:
         household_day = DEFAULT_HOUSEHOLD_DAY
@@ -443,6 +447,7 @@ def build_proposal(
             "category": entry["category"],
             "available_from": entry["available_from"],
             "available_until": entry["available_until"],
+            "replaced_by_key": entry["replaced_by"],
             "kid_id": kid["id"] if kid else None,
             "subtasks": _subtasks_for(entry, age, lang, feats) if kid else
             [{"title": s["title_de"] if lang == "de" else s["title_en"], "done": False}
@@ -464,9 +469,14 @@ def build_proposal(
                 key = make_key(entry["key"], kid["id"])
                 task = base_task(entry, key, f"{_name(entry, lang)} {kid['name']}", kid, entry["interval"])
                 if entry["interval"] >= 7:
-                    # weekly / bi-weekly: first on the household day, bi-weekly alternating by kid
-                    offset = 7 if entry["interval"] >= 14 and kid_index % 2 else 0
-                    task["due_date"] = (household + timedelta(days=offset)).isoformat()
+                    # weekly / bi-weekly: spread over the days around the household day
+                    # (day_offset), bi-weekly alternating by kid
+                    day = household + timedelta(days=entry["day_offset"])
+                    if day < start:
+                        day += timedelta(days=7)
+                    if entry["interval"] >= 14 and kid_index % 2:
+                        day += timedelta(days=7)
+                    task["due_date"] = day.isoformat()
                 else:
                     task["due_date"] = start.isoformat()
                 kid["tasks"].append(task)

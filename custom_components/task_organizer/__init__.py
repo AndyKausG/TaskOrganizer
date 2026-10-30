@@ -122,6 +122,10 @@ from .kids import (
     normalize_time,
     is_expired,
     is_missed,
+    is_replaced,
+    window_state,
+    WINDOW_TOO_LATE,
+    skipped_by_completion,
     next_due_day,
     restore_full_goals,
     participant_id,
@@ -372,6 +376,7 @@ async def _async_complete_task_internal(hass: HomeAssistant, task_id: str, compl
             users_with_points[u_id] = share
 
     task_name = task.get("name")
+    _skip_replaced(hass, data, task)
     undo = _advance_task(data, task_id)
     _award_task_points(
         hass, data, task_id, task_name, users_with_points, total_points,
@@ -1101,6 +1106,7 @@ async def _async_request_approval(hass: HomeAssistant, task_id: str, kid_id: str
         "points": points,
         "timestamp": dt_util.utcnow().isoformat(),
     }
+    _skip_replaced(hass, data, task)
     undo = _advance_task(data, task_id)
     if undo:
         record["undo"] = undo
@@ -1824,6 +1830,10 @@ def _wizard_update_task(task: dict, item: dict) -> None:
     task["interval"] = item["interval"]
     task["available_from"] = normalize_time(item.get("available_from"))
     task["available_until"] = normalize_time(item.get("available_until"))
+    if item.get("replaced_by_key"):
+        task["replaced_by_key"] = item["replaced_by_key"]
+    else:
+        task.pop("replaced_by_key", None)
     task["subtasks"] = [
         {**st, "done": progress.get(st.get("title"), False)} for st in copy.deepcopy(item["subtasks"])
     ]
@@ -1859,6 +1869,25 @@ def _wizard_restagger(wizard_tasks: list, existing: dict, household_day: int) ->
     return result
 
 
+def _wizard_fresh_due(item: dict, now: datetime, start: date) -> date:
+    """Due day of a wizard task in a fresh plan (new tasks and "Termine neu verteilen").
+
+    The proposal's date (household day for weekly tasks, rotation stagger); a
+    daily task that would start today although today's time window is over
+    starts tomorrow instead (the whole rotation moves together).
+    """
+    day = date.fromisoformat(item["due_date"])
+    if (
+        item.get("base_interval") == 1
+        and item.get("category") == "basis"
+        and start <= now.date()
+        and window_state(item, now) == WINDOW_TOO_LATE
+    ):
+        # shifted as a whole, so the turns of a rotation keep their distance
+        day += timedelta(days=(now.date() - start).days + 1)
+    return day
+
+
 def _wizard_task_ids_to_replace(tasks: dict, kid_ids: set, proposal: dict) -> list[str]:
     """IDs of earlier wizard tasks that the new run regenerates.
 
@@ -1891,6 +1920,7 @@ def _wizard_task_ids_to_replace(tasks: dict, kid_ids: set, proposal: dict) -> li
         vol.Optional("reward", default=""): vol.All(str, vol.Length(max=80)),
     }),
     vol.Optional("replace_existing", default=False): bool,
+    vol.Optional("reschedule", default=False): bool,
     vol.Optional("device_triggers", default=[]): [vol.Schema({
         vol.Required("wizard_key"): str,
         vol.Required("entity_id"): cv.entity_id,
@@ -1957,6 +1987,12 @@ async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveC
         }
 
     restagger = _wizard_restagger(wizard_tasks, wizard_task_by_key(), ctx["household_day"]) if replace else {}
+    now_local = dt_util.now()
+    if replace and msg["reschedule"]:
+        # "Termine neu verteilen": existing wizard tasks get the dates of a new plan
+        for item in wizard_tasks:
+            if item["selected"] and item["wizard_key"] in wizard_task_by_key():
+                restagger[item["wizard_key"]] = _wizard_fresh_due(item, now_local, ctx["start"])
 
     deleted = 0
     if replace:
@@ -1989,8 +2025,8 @@ async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveC
             updated += 1
             continue
         task_id = str(uuid.uuid4())
-        due_day = restagger.get(item["wizard_key"]) or item["due_date"]
-        due_day = due_day.isoformat() if isinstance(due_day, date) else due_day
+        due_day = restagger.get(item["wizard_key"]) or _wizard_fresh_due(item, now_local, ctx["start"])
+        due_day = due_day.isoformat()
         task = {
             "id": task_id,
             "name": item["name"],
@@ -2011,6 +2047,8 @@ async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveC
             "wizard_key": item["wizard_key"],
             "generated_by": kids_catalog.GENERATED_BY,
         }
+        if item.get("replaced_by_key"):
+            task["replaced_by_key"] = item["replaced_by_key"]
         data["tasks"][task_id] = task
         created_tasks.append(task)
 
@@ -2212,6 +2250,28 @@ async def ws_set_bonus_triggers(hass: HomeAssistant, connection: websocket_api.A
     connection.send_result(msg["id"], {"success": True})
 
 
+def _migrate_replaced_by(item: dict) -> None:
+    """Wizard tasks created before ``replaced_by_key`` existed get it from the catalog."""
+    if item.get("replaced_by_key") or item.get("generated_by") != kids_catalog.GENERATED_BY:
+        return
+    catalog_key, _suffix = kids_catalog.split_key(item.get("wizard_key") or "")
+    replaced_by = (kids_catalog.CATALOG_BY_KEY.get(catalog_key) or {}).get("replaced_by")
+    if replaced_by:
+        item["replaced_by_key"] = replaced_by
+
+
+def _skip_replaced(hass: HomeAssistant, data: dict, completed: dict) -> None:
+    """Skip today's replaced tasks (room blitz) when the replacing task (thorough room clean) is done.
+
+    Must run BEFORE the completed task advances. The skipped tasks move on to
+    their next occurrence - no points, no history entry.
+    """
+    now = dt_util.now()
+    overdue_days = _get_entry(hass).options.get("overdue_days", 5)
+    for tid in skipped_by_completion(completed, data["tasks"], now, overdue_days):
+        _advance_task(data, tid)
+
+
 async def _async_expire_missed(hass: HomeAssistant) -> int:
     """Advance kids' duties that were missed on a previous day - no points, no deduction.
 
@@ -2236,6 +2296,12 @@ async def _async_expire_missed(hass: HomeAssistant) -> int:
     kids = entry.options.get("kids") or {}
     overdue_days = entry.options.get("overdue_days", 5)
     count = 0
+    changed = False
+    # Decided up front: the replacing task itself may expire in the loop below
+    replaced_ids = {
+        tid for tid, t in data["tasks"].items()
+        if isinstance(t, dict) and is_replaced(t, data["tasks"], now, overdue_days)
+    }
     for task_id, task in list(data["tasks"].items()):
         if not isinstance(task, dict) or normalize_category(task.get("category")) != "basis":
             continue
@@ -2259,6 +2325,9 @@ async def _async_expire_missed(hass: HomeAssistant) -> int:
         task.pop("claimed_until", None)
         for st in task.get("subtasks") or []:
             st["done"] = False
+        changed = True
+        if task_id in replaced_ids:
+            continue  # replaced by a bigger duty that day: skipped, not missed
         for kid_id in kid_ids:
             data["history"].insert(0, {
                 "id": str(uuid.uuid4()),
@@ -2271,7 +2340,7 @@ async def _async_expire_missed(hass: HomeAssistant) -> int:
             })
         count += 1
     await hass.data[DOMAIN]["store"].async_save(data)
-    if count:
+    if changed:
         hass.bus.async_fire(EVENT_TASK_UPDATED)
     return count
 
@@ -2385,6 +2454,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     for item in list(data["tasks"].values()) + list(data["templates"].values()):
         if isinstance(item, dict):
             migrate_task_like(item)
+            _migrate_replaced_by(item)
 
     # IMPORTANT: Ensure settings from config entry options are always reflected in data
     data["settings"] = dict(entry.options)

@@ -491,14 +491,16 @@ async def test_wizard_rerun_deletes_unselected_and_restaggers_rotation(hass, has
 async def test_household_day_for_weekly_tasks(hass, hass_ws_client, setup, freezer):
     ws = await hass_ws_client(hass)
     freezer.move_to(NOON)
-    preview = (await _call(ws, "task_organizer/wizard_preview", **WIZ))["result"]    # 2026-10-29 = Thursday
+    preview = (await _call(ws, "task_organizer/wizard_preview",
+                           **{**WIZ, "features": ["school", "washer"]}))["result"]       # 2026-10-29 = Thursday
     assert preview["household_day"] == 5 and preview["household_date"] == "2026-10-31"
     due = {t["wizard_key"]: t["due_date"] for k in preview["kids"] for t in k["tasks"]}
     assert due["room_deep:person.anna"] == "2026-10-31"
     assert due["room_deep:person.ben"] == "2026-10-31"
     assert due["morning:person.anna"] == "2026-10-29"                      # daily: start date
-    # bi-weekly: alternating by kid
-    assert due["bedding:person.anna"] == "2026-10-31" and due["bedding:person.ben"] == "2026-11-07"
+    # spread: own laundry the day before, bedding the day after (bi-weekly alternating by kid)
+    assert due["own_laundry:person.anna"] == "2026-10-30"
+    assert due["bedding:person.anna"] == "2026-11-01" and due["bedding:person.ben"] == "2026-11-08"
     # weekly rotation starts on the household day, one week apart
     assert {due["plants:person.anna"], due["plants:person.ben"]} >= {"2026-10-31", "2026-11-07"}
 
@@ -609,3 +611,137 @@ async def test_missed_midnight_timer_dst_and_startup(hass, hass_ws_client, setup
     assert _data(hass)["tasks"][tid]["due_date"].startswith("2026-11-02T08:00")
     assert await _async_expire_missed(hass) == 0
     assert len(_data(hass)["history"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# time windows from the catalog, replaced blitz, reschedule
+# ---------------------------------------------------------------------------
+
+def _local_day(task):
+    return dt_util.as_local(dt_util.parse_datetime(task["due_date"])).date()
+
+
+async def test_wizard_tasks_carry_catalog_windows_and_replaced_by(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    assert (await _call(ws, "task_organizer/wizard_apply", **WIZ))["success"]
+    tasks = _by_key(hass)
+    assert (tasks["room_blitz:person.anna"]["available_from"], tasks["room_blitz:person.anna"]["available_until"]) \
+        == ("14:00", "19:30")
+    assert tasks["room_deep:person.anna"]["available_from"] == "09:00"
+    assert tasks["room_blitz:person.anna"]["replaced_by_key"] == "room_deep"
+    assert "replaced_by_key" not in tasks["room_deep:person.anna"]
+    # in-place update applies the catalog windows to older wizard tasks
+    old = tasks["room_blitz:person.anna"]
+    old.update({"available_from": None, "available_until": None})
+    old.pop("replaced_by_key")
+    assert (await _call(ws, "task_organizer/wizard_apply", replace_existing=True, **WIZ))["success"]
+    assert old["available_from"] == "14:00" and old["replaced_by_key"] == "room_deep"
+
+
+async def test_replaced_blitz_is_skipped_without_missed_entry(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    await _make_kid(ws)
+    today = dt_util.now().date()
+    yesterday = _local_start(today - timedelta(days=1))
+    blitz = await _add_task(ws, assignees=[ANNA], name="Blitz")
+    deep = await _add_task(ws, assignees=[ANNA], interval=7, name="Gruendlich")
+    other = await _add_task(ws, assignees=[ANNA], name="Andere")
+    _data(hass)["tasks"][blitz].update({"wizard_key": "room_blitz:person.anna", "generated_by": "wizard",
+                                        "replaced_by_key": "room_deep", "due_date": yesterday})
+    _data(hass)["tasks"][deep].update({"wizard_key": "room_deep:person.anna", "generated_by": "wizard",
+                                       "due_date": yesterday})
+    _data(hass)["tasks"][other]["due_date"] = yesterday
+    _data(hass).pop("missed_checked", None)
+
+    assert await _async_expire_missed(hass) == 1                           # only the plain task is "missed"
+    tasks = _data(hass)["tasks"]
+    assert tasks[blitz]["due_date"] == _local_start(today)                 # skipped to its next occurrence
+    assert tasks[deep]["due_date"] == yesterday                            # weekly grace period
+    (entry,) = _data(hass)["history"]
+    assert entry["task_id"] == other and entry["type"] == "missed"
+    assert _data(hass)["points"].get(ANNA, 0) == 0
+
+
+async def test_replaced_blitz_not_eligible_and_skipped_on_completion(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON + timedelta(hours=5))                             # 16:00 local, blitz window open
+    await _make_kid(ws)
+    today = dt_util.now().date()
+    blitz = await _add_task(ws, assignees=[ANNA], name="Blitz", available_from="14:00", available_until="19:30")
+    deep = await _add_task(ws, assignees=[ANNA], interval=7, name="Gruendlich")
+    _data(hass)["tasks"][blitz].update({"wizard_key": "room_blitz:person.anna", "generated_by": "wizard",
+                                        "replaced_by_key": "room_deep"})
+    _data(hass)["tasks"][deep].update({"wizard_key": "room_deep:person.anna", "generated_by": "wizard"})
+    for tid in (blitz, deep):
+        _data(hass)["tasks"][tid]["due_date"] = _local_start(today)
+
+    res = await _call(ws, "task_organizer/kid_complete_task", task_id=blitz, kid_id=ANNA, pin="1234")
+    assert res["result"] == {"success": False, "error": "not_eligible"}
+
+    res = await _call(ws, "task_organizer/kid_complete_task", task_id=deep, kid_id=ANNA, pin="1234")
+    assert res["result"]["success"]
+    assert _local_day(_data(hass)["tasks"][blitz]) == today + timedelta(days=1)    # skipped for today
+    assert _data(hass)["points"][ANNA] == 4                                # only the deep clean pays
+    assert [h["task_id"] for h in _data(hass)["history"]] == [deep]        # no missed / blitz entry
+    # next day the blitz is a normal duty again
+    res = await _call(ws, "task_organizer/kid_complete_task", task_id=blitz, kid_id=ANNA, pin="1234")
+    assert res["result"]["error"] == "not_eligible"                        # not due yet today either
+
+
+async def test_old_wizard_tasks_get_replaced_by_key_on_load(hass, setup):
+    from custom_components.task_organizer import _migrate_replaced_by
+    old = {"generated_by": "wizard", "wizard_key": "room_blitz_small:person.david"}
+    _migrate_replaced_by(old)
+    assert old["replaced_by_key"] == "room_deep"
+    manual = {"wizard_key": "room_blitz:person.anna"}                       # not generated by the wizard
+    _migrate_replaced_by(manual)
+    assert "replaced_by_key" not in manual
+
+
+async def test_wizard_reschedule_redistributes_dates_and_keeps_history(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    WIZW = {**WIZ, "features": ["school", "washer"]}
+    freezer.move_to(NOON)                                                  # Thursday 11:00 local
+    assert (await _call(ws, "task_organizer/wizard_apply", **WIZW))["success"]
+    tasks = _by_key(hass)
+    friday_old = _local_start(dt_util.now().date() - timedelta(days=6))
+    for key in ("room_deep:person.anna", "morning:person.anna", "room_blitz:person.anna"):
+        tasks[key]["due_date"] = friday_old
+    _data(hass)["points"][ANNA] = 12
+    _data(hass)["history"].append({"id": "h1", "task_id": "x", "task_name": "x", "user_id": ANNA,
+                                   "points": 12, "timestamp": "2026-10-01T10:00:00+00:00", "type": "task"})
+    tasks["room_deep:person.anna"]["paused_until"] = "2026-11-03"
+    ids = {k: t["id"] for k, t in tasks.items()}
+
+    # without the option the old dates stay
+    assert (await _call(ws, "task_organizer/wizard_apply", replace_existing=True, **WIZW))["success"]
+    assert tasks["room_deep:person.anna"]["due_date"] == friday_old
+
+    # reschedule only applies together with the in-place update
+    assert (await _call(ws, "task_organizer/wizard_apply", reschedule=True, **WIZW))["success"]
+    assert tasks["room_deep:person.anna"]["due_date"] == friday_old
+
+    res = await _call(ws, "task_organizer/wizard_apply", replace_existing=True, reschedule=True, **WIZW)
+    assert res["success"] and res["result"]["created"] == 0
+    after = _by_key(hass)
+    assert {k: t["id"] for k, t in after.items()} == ids
+    day = lambda k: _local_day(after[k]).isoformat()
+    assert day("room_deep:person.anna") == "2026-10-31"                    # household day
+    assert day("own_laundry:person.anna") == "2026-10-30"                  # spread
+    assert after["room_deep:person.anna"]["paused_until"] is None
+    assert day("morning:person.anna") == "2026-10-30"                      # window 05-10 is over at 11:00
+    assert day("room_blitz:person.anna") == "2026-10-29"                   # window 14-19:30 still ahead
+    assert day("evening:person.anna") == "2026-10-29"
+    assert day("table_set:person.anna") == "2026-10-29" and day("table_set:person.ben") == "2026-10-30"
+    assert _data(hass)["points"][ANNA] == 12 and _data(hass)["history"][-1]["id"] == "h1"
+
+
+async def test_new_daily_task_after_window_starts_tomorrow(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    assert (await _call(ws, "task_organizer/wizard_apply", **WIZ))["success"]
+    tasks = _by_key(hass)
+    assert _local_day(tasks["morning:person.anna"]) == dt_util.now().date() + timedelta(days=1)
+    assert _local_day(tasks["evening:person.anna"]) == dt_util.now().date()

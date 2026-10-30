@@ -534,3 +534,58 @@ def test_next_due_day():
     assert kids.next_due_day(date(2026, 10, 28), 3, today) == date(2026, 10, 31)
     assert kids.next_due_day(date(2026, 10, 1), 7, today) == today
     assert kids.next_due_day(date(2026, 10, 28), 0, today) == today
+
+
+# ---------------------------------------------------------------------------
+# replaced duties (room blitz yields to the thorough room clean)
+# ---------------------------------------------------------------------------
+
+def _pair(deep_due=NOW, deep_kid="person.anna", **blitz_kw):
+    blitz = _task(assignees=["person.anna"], wizard_key="room_blitz:person.anna",
+                  replaced_by_key="room_deep", **blitz_kw)
+    deep = _task(assignees=[deep_kid], wizard_key=f"room_deep:{deep_kid}",
+                 due_date=deep_due.astimezone(timezone.utc).isoformat())
+    return blitz, deep, {"b": blitz, "d": deep}
+
+
+def test_is_replaced_when_the_deep_clean_is_open():
+    blitz, deep, tasks = _pair()
+    assert kids.is_replaced(blitz, tasks, NOW)
+    assert not kids.is_replaced(deep, tasks, NOW)
+    # deep clean not due yet (or paused) -> blitz counts again
+    _b, _d, later = _pair(deep_due=NOW + timedelta(days=2))
+    assert not kids.is_replaced(later["b"], later, NOW)
+    deep["paused_until"] = (NOW + timedelta(days=1)).isoformat()
+    assert not kids.is_replaced(blitz, tasks, NOW)
+
+
+def test_is_replaced_only_for_the_same_kid_and_with_the_relation():
+    blitz, _deep, tasks = _pair(deep_kid="person.ben")
+    assert not kids.is_replaced(blitz, tasks, NOW)                      # other kid's room
+    plain = _task(assignees=["person.anna"], wizard_key="room_blitz:person.anna")
+    own_deep = _task(assignees=["person.anna"], wizard_key="room_deep:person.anna")
+    assert not kids.is_replaced(plain, {"a": plain, "b": own_deep}, NOW)    # no replaced_by_key
+    manual = _task(assignees=["person.anna"], replaced_by_key="room_deep")
+    manual_deep = _task(assignees=["person.anna"])                          # no wizard key
+    assert not kids.is_replaced(manual, {"a": manual, "b": manual_deep}, NOW)
+
+
+def test_replaced_task_is_not_an_open_duty_and_not_eligible():
+    blitz, deep, tasks = _pair()
+    assert kids.open_basis_tasks_for(tasks, "person.anna", NOW, 5) == [deep]
+    err = kids.check_eligibility(blitz, "person.anna", {}, tasks, {}, NOW)
+    assert err == kids.ERR_NOT_ELIGIBLE
+    assert kids.check_eligibility(deep, "person.anna", {}, tasks, {}, NOW) is None
+    del tasks["d"]
+    assert kids.check_eligibility(blitz, "person.anna", {}, tasks, {}, NOW) is None
+
+
+def test_skipped_by_completion():
+    blitz, deep, tasks = _pair()
+    assert kids.skipped_by_completion(deep, tasks, NOW) == ["b"]
+    assert kids.skipped_by_completion(blitz, tasks, NOW) == []
+    deep["due_date"] = (NOW + timedelta(days=3)).isoformat()                # not open: replaces nothing
+    assert kids.skipped_by_completion(deep, tasks, NOW) == []
+    blitz["due_date"] = (NOW + timedelta(days=1)).isoformat()               # already done today
+    deep["due_date"] = NOW.isoformat()
+    assert kids.skipped_by_completion(deep, tasks, NOW) == []

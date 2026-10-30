@@ -726,6 +726,59 @@ def open_basis_tasks_for(
         and is_open(t, now, default_overdue_days)
         and in_window(t, now)
         and not _too_young(t, age)
+        and not is_replaced(t, tasks, now, default_overdue_days)
+    ]
+
+
+def _replaces(replaced: dict, replacing: dict) -> bool:
+    """True when ``replacing`` is the task that ``replaced`` yields to (same kid, wizard key prefix)."""
+    key = replaced.get("replaced_by_key")
+    if not key or not isinstance(key, str) or replacing is replaced:
+        return False
+    if not str(replacing.get("wizard_key") or "").startswith(f"{key}:"):
+        return False
+    return bool(set(_assignee_list(replaced)) & set(_assignee_list(replacing)))
+
+
+def is_replaced(
+    task: dict,
+    tasks: dict,
+    now: datetime,
+    default_overdue_days: int = DEFAULT_OVERDUE_DAYS,
+) -> bool:
+    """True when a duty is replaced today by a bigger duty of the same kid.
+
+    A task with ``replaced_by_key`` (wizard key prefix, e.g. ``room_deep``) is
+    skipped as long as the kid's task with that prefix is due / open: the
+    thorough room clean replaces the daily room blitz. The replaced task is not
+    shown as a duty, does not count as open and cannot be completed. Tasks
+    without ``replaced_by_key`` are never replaced.
+    """
+    if not task.get("replaced_by_key"):
+        return False
+    return any(
+        _replaces(task, other) and is_open(other, now, default_overdue_days)
+        for other in tasks.values()
+    )
+
+
+def skipped_by_completion(
+    completed: dict,
+    tasks: dict,
+    now: datetime,
+    default_overdue_days: int = DEFAULT_OVERDUE_DAYS,
+) -> list[str]:
+    """IDs of open tasks that are skipped for today because ``completed`` is done.
+
+    Call BEFORE the completed task advances. Only a completion of an open task
+    replaces anything (e.g. room_deep done -> today's room blitz is skipped).
+    """
+    if not is_open(completed, now, default_overdue_days):
+        return []
+    return [
+        task_id
+        for task_id, task in tasks.items()
+        if _replaces(task, completed) and is_open(task, now, default_overdue_days)
     ]
 
 
@@ -761,6 +814,8 @@ def check_eligibility(
     overdue_days = settings.get("overdue_days", DEFAULT_OVERDUE_DAYS)
 
     if not is_open(task, now, overdue_days) or is_expired(task, now):
+        return ERR_NOT_ELIGIBLE
+    if is_replaced(task, tasks, now, overdue_days):
         return ERR_NOT_ELIGIBLE
 
     assignees = _assignee_list(task)
