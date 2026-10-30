@@ -61,7 +61,7 @@ const I18N_SETTINGS = {
     family_goal: "Family goal", family_goal_points: "Points per month (all kids together)", family_goal_reward: "Reward", family_goal_reward_ph: "e.g. Ice cream trip",
 claim_minutes: "Bonus reservation (minutes)",
     category_lbl: "Category (kids mode)", cat_basis: "Basis (assigned duty)", cat_bonus: "Bonus (open for all)", cat_auftrag: "Order (one-time)",
-    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties",
+    min_age_lbl: "Minimum age (0 = any)", min_age_short: "age {age}+", approval_lbl: "Requires parent approval", routine_lbl: "Bonus only after the kid's due duties", together_lbl: "Doing it together allowed",
     available_from_lbl: "Only from (time)", available_until_lbl: "Only until (time)",
     reminder_lbl: "Reminder", reminder_time_lbl: "Remind at", reminder_target_lbl: "Notify via", reminder_event_only: "Event only",
     expire_missed: "Missed duties expire at midnight (daily duties right away, weekly ones after 2 days) - no points, no deduction",
@@ -128,7 +128,7 @@ claim_minutes: "Bonus reservation (minutes)",
     family_goal: "Familienziel", family_goal_points: "Punkte pro Monat (alle Kinder zusammen)", family_goal_reward: "Belohnung", family_goal_reward_ph: "z.B. Eis essen gehen",
 claim_minutes: "Bonus-Reservierung (Minuten)",
     category_lbl: "Kategorie (Kindermodus)", cat_basis: "Basis (feste Pflicht)", cat_bonus: "Bonus (offen für alle)", cat_auftrag: "Auftrag (einmalig)",
-    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten",
+    min_age_lbl: "Mindestalter (0 = egal)", min_age_short: "ab {age}", approval_lbl: "Freigabe durch Eltern nötig", routine_lbl: "Bonus erst nach den fälligen Pflichten", together_lbl: "Zusammen erledigen erlaubt",
     available_from_lbl: "Erst ab (Uhrzeit)", available_until_lbl: "Nur bis (Uhrzeit)",
     reminder_lbl: "Erinnerung", reminder_time_lbl: "Erinnern um", reminder_target_lbl: "Benachrichtigen über", reminder_event_only: "nur Ereignis",
     expire_missed: "Verpasste Pflichten verfallen um Mitternacht (tägliche sofort, wöchentliche nach 2 Tagen) – ohne Punkte, ohne Abzug",
@@ -881,6 +881,7 @@ class TaskOrganizerSettings extends HTMLElement {
       min_age: Math.max(0, Math.min(18, parseInt(this.shadowRoot.getElementById('tmpl-min-age').value) || 0)),
       requires_approval: !!this.shadowRoot.getElementById('tmpl-approval')?.checked,
       requires_routine: !!this.shadowRoot.getElementById('tmpl-routine')?.checked,
+      allow_together: !!this.shadowRoot.getElementById('tmpl-together')?.checked,
       available_from: this.shadowRoot.getElementById('tmpl-available-from')?.value || '',
       available_until: this.shadowRoot.getElementById('tmpl-available-until')?.value || '',
       reminder_at: this.shadowRoot.getElementById('tmpl-reminder')?.checked ? (this.shadowRoot.getElementById('tmpl-reminder-at')?.value || '18:00') : '',
@@ -1835,6 +1836,9 @@ class TaskOrganizerSettings extends HTMLElement {
               <ha-formfield label="${this.localize('routine_lbl')}">
                   <ha-switch id="tmpl-routine" ${template?.requires_routine ? 'checked' : ''}></ha-switch>
               </ha-formfield>
+              <ha-formfield label="${this.localize('together_lbl')}">
+                  <ha-switch id="tmpl-together" ${(template?.allow_together ?? ['bonus', 'auftrag'].includes(template?.category)) ? 'checked' : ''}></ha-switch>
+              </ha-formfield>
               <ha-formfield label="${this.localize('reminder_lbl')}">
                   <ha-switch id="tmpl-reminder" ${template?.reminder_at ? 'checked' : ''}></ha-switch>
               </ha-formfield>
@@ -1927,6 +1931,10 @@ class TaskOrganizerSettings extends HTMLElement {
       if (ev.target && ev.target.id === 'tmpl-reminder') {
         const row = this.shadowRoot.getElementById('tmpl-reminder-row');
         if (row) row.hidden = !ev.target.checked;
+      }
+      if (ev.target && ev.target.id === 'tmpl-category') {
+        const together = this.shadowRoot.getElementById('tmpl-together');
+        if (together) together.checked = ev.target.value !== 'basis';
       }
     });
     this.shadowRoot.querySelector('#import-modal').addEventListener('click', (ev) => this._handleClick(ev));

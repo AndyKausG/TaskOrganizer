@@ -55,7 +55,7 @@ const I18N_KIDS = {
     from_time: "from {t}", countdown: "{n} min to go", window_over: "Over for today - new chance tomorrow",
     until_time: "until {t}",
     err_not_yet: "Not yet! This task starts a little later.",
-    err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!",
+    err_too_late: "Too late for today. New chance tomorrow!", err_steps_open: "Tick all steps first!", err_together_not_allowed: "This task is a solo job.",
     steps_left: "Still {n} step(s) to tick",
     pa_skip: "Skip today", pa_postpone: "Postpone", pa_complete: "Complete for {name}", pa_undo: "Undo",
     pa_cancel: "Cancel", pa_ok: "OK", pa_done_today: "Done today",
@@ -119,7 +119,7 @@ const I18N_KIDS = {
     from_time: "ab {t}", countdown: "noch {n} min", window_over: "Heute vorbei – morgen neue Chance",
     until_time: "bis {t}",
     err_not_yet: "Noch nicht dran! Die Aufgabe startet etwas später.",
-    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!",
+    err_too_late: "Heute zu spät. Morgen gibt es eine neue Chance!", err_steps_open: "Hake zuerst alle Schritte ab!", err_together_not_allowed: "Diese Aufgabe machst du allein.",
     steps_left: "Noch {n} Schritt(e) abhaken",
     pa_skip: "Heute aussetzen", pa_postpone: "Zurückstellen", pa_complete: "Für {name} erledigen", pa_undo: "Rückgängig",
     pa_cancel: "Abbrechen", pa_ok: "OK", pa_done_today: "Heute erledigt",
@@ -1169,6 +1169,11 @@ class TaskOrganizerKids extends HTMLElement {
   // Doing a task together: pick the helpers, each one confirms with the own PIN
   // ---------------------------------------------------------------------------
 
+  /** Whether the task may be done together (field missing -> bonus/auftrag yes, basis no). */
+  _allowTogether(task) {
+    return task.allow_together === undefined || task.allow_together === null ? this._category(task) !== 'basis' : !!task.allow_together;
+  }
+
   /** Other kids who may help with a task (old enough; the assignment does not matter). */
   _helperCandidates(task, kid) {
     return this._kids().filter(k => k.id !== kid.id && this._oldEnough(task, k));
@@ -2099,7 +2104,7 @@ class TaskOrganizerKids extends HTMLElement {
       // "Fertig!" only once every required step is ticked (optional steps never block)
       const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
       action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
-      if (!this._isMine() && this._helperCandidates(task, kid).length) {
+      if (!this._isMine() && this._allowTogether(task) && this._helperCandidates(task, kid).length) {
         action += `<button class="btn btn-together" data-action="together" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>👫 ${escKids(this.localize('together'))}</button>`;
       }
       if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
@@ -2308,6 +2313,7 @@ class TaskOrganizerKids extends HTMLElement {
       .sdate select { min-height: 64px; font-size: 26px; font-family: inherit; padding: 0 10px; border-radius: 18px; border: 3px solid var(--k-line); background: var(--k-card); color: var(--k-text); }
       .t-action { flex-direction: column; gap: 8px; align-items: stretch; }
       .btn-together { min-height: 56px; font-size: 22px; background: var(--k-blue); }
+      .btn-together:disabled { background: #9E9E9E; box-shadow: none; }
       .hchips { display: flex; flex-wrap: wrap; gap: 12px; }
       .hchip { position: relative; min-width: 120px; padding: 12px 16px 8px; border-radius: 26px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--k-card); border: 4px solid var(--k-line); }
       .hchip.on { border-color: var(--kc); background: color-mix(in srgb, var(--kc) 22%, var(--k-card)); }

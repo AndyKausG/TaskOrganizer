@@ -106,6 +106,9 @@ from . import kids_catalog
 from .kids import (
     ERR_NOT_ELIGIBLE,
     ERR_STEPS_OPEN,
+    ERR_TOGETHER_NOT_ALLOWED,
+    allow_together,
+    default_allow_together,
     open_required_steps,
     DEFAULT_CLAIM_MINUTES,
     ERR_NOT_FOUND,
@@ -559,6 +562,7 @@ async def ws_complete_task(hass: HomeAssistant, connection: websocket_api.Active
     vol.Optional("min_age", default=0): vol.All(int, vol.Range(min=0, max=18)),
     vol.Optional("requires_approval", default=False): bool,
     vol.Optional("requires_routine", default=False): bool,
+    vol.Optional("allow_together"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
     vol.Optional("reminder_at"): _TIME_FIELD,
@@ -600,6 +604,7 @@ async def ws_add_task(hass: HomeAssistant, connection: websocket_api.ActiveConne
         "min_age": normalize_min_age(msg.get("min_age", 0)),
         "requires_approval": bool(msg.get("requires_approval", False)),
         "requires_routine": bool(msg.get("requires_routine", False)),
+        "allow_together": _together_from(msg.get("allow_together"), msg.get("category")),
         "available_from": normalize_time(msg.get("available_from")),
         "available_until": normalize_time(msg.get("available_until")),
         "reminder_at": normalize_time(msg.get("reminder_at")),
@@ -631,6 +636,7 @@ async def ws_add_task(hass: HomeAssistant, connection: websocket_api.ActiveConne
     vol.Optional("min_age"): vol.All(int, vol.Range(min=0, max=18)),
     vol.Optional("requires_approval"): bool,
     vol.Optional("requires_routine"): bool,
+    vol.Optional("allow_together"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
     vol.Optional("reminder_at"): _TIME_FIELD,
@@ -674,6 +680,8 @@ async def ws_edit_task(hass: HomeAssistant, connection: websocket_api.ActiveConn
         task_ref["requires_approval"] = bool(msg["requires_approval"])
     if "requires_routine" in msg:
         task_ref["requires_routine"] = bool(msg["requires_routine"])
+    if "allow_together" in msg:
+        task_ref["allow_together"] = bool(msg["allow_together"])
     for key in ("available_from", "available_until"):
         if key in msg:
             task_ref[key] = normalize_time(msg[key])
@@ -691,6 +699,11 @@ async def ws_edit_task(hass: HomeAssistant, connection: websocket_api.ActiveConn
     await hass.data[DOMAIN]["store"].async_save(data)
     hass.bus.async_fire(EVENT_TASK_UPDATED)
     connection.send_result(msg["id"], {"success": True})
+
+
+def _together_from(value, category) -> bool:
+    """Explicit ``allow_together`` value, else the default of the category."""
+    return default_allow_together(category) if value is None else bool(value)
 
 
 def _apply_reminder_fields(item: dict, msg: dict) -> None:
@@ -973,6 +986,7 @@ async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveC
     vol.Optional("min_age", default=0): vol.All(int, vol.Range(min=0, max=18)),
     vol.Optional("requires_approval", default=False): bool,
     vol.Optional("requires_routine", default=False): bool,
+    vol.Optional("allow_together"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
     vol.Optional("reminder_at"): _TIME_FIELD,
@@ -1000,6 +1014,7 @@ async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveC
         "min_age": normalize_min_age(msg.get("min_age", 0)),
         "requires_approval": bool(msg.get("requires_approval", False)),
         "requires_routine": bool(msg.get("requires_routine", False)),
+        "allow_together": _together_from(msg.get("allow_together"), msg.get("category")),
         "available_from": normalize_time(msg.get("available_from")),
         "available_until": normalize_time(msg.get("available_until")),
         "reminder_at": normalize_time(msg.get("reminder_at")),
@@ -1026,6 +1041,7 @@ async def ws_add_template(hass: HomeAssistant, connection: websocket_api.ActiveC
     vol.Optional("min_age"): vol.All(int, vol.Range(min=0, max=18)),
     vol.Optional("requires_approval"): bool,
     vol.Optional("requires_routine"): bool,
+    vol.Optional("allow_together"): bool,
     vol.Optional("available_from"): _TIME_FIELD,
     vol.Optional("available_until"): _TIME_FIELD,
     vol.Optional("reminder_at"): _TIME_FIELD,
@@ -1061,6 +1077,8 @@ async def ws_edit_template(hass: HomeAssistant, connection: websocket_api.Active
         template_ref["requires_approval"] = bool(msg["requires_approval"])
     if "requires_routine" in msg:
         template_ref["requires_routine"] = bool(msg["requires_routine"])
+    if "allow_together" in msg:
+        template_ref["allow_together"] = bool(msg["allow_together"])
     for key in ("available_from", "available_until"):
         if key in msg:
             template_ref[key] = normalize_time(msg[key])
@@ -1311,6 +1329,9 @@ async def _async_kid_complete(hass: HomeAssistant, task_id: str, ctx: dict, help
     if open_required_steps(ctx["task"]):
         return {"success": False, "error": ERR_STEPS_OPEN}
 
+    if helpers and not allow_together(ctx["task"]):
+        # Before any helper PIN is checked: costs no PIN attempt
+        return {"success": False, "error": ERR_TOGETHER_NOT_ALLOWED}
     if helpers:
         error = _verify_helpers(hass, ctx, helpers)
         if error:
@@ -1872,6 +1893,7 @@ async def ws_add_adhoc_bonus(hass: HomeAssistant, connection: websocket_api.Acti
         "min_age": normalize_min_age(msg.get("min_age", 0)),
         "requires_approval": False,
         "requires_routine": False,
+        "allow_together": True,
         "available_from": None,
         "available_until": None,
         "icon": msg["icon"],
@@ -2588,6 +2610,7 @@ def _wizard_update_task(task: dict, item: dict) -> None:
     task["icon"] = item["icon"]
     task["category"] = normalize_category(item["category"])
     task["min_age"] = normalize_min_age(item["min_age"])
+    task["allow_together"] = bool(item.get("allow_together", default_allow_together(item["category"])))
     task["interval"] = item["interval"]
     task["available_from"] = normalize_time(item.get("available_from"))
     task["available_until"] = normalize_time(item.get("available_until"))
@@ -2797,6 +2820,7 @@ async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveC
             "complexity": item["points"],
             "category": normalize_category(item["category"]),
             "min_age": normalize_min_age(item["min_age"]),
+            "allow_together": bool(item.get("allow_together", default_allow_together(item["category"]))),
             "available_from": normalize_time(item.get("available_from")),
             "available_until": normalize_time(item.get("available_until")),
             "icon": item["icon"],
@@ -2829,6 +2853,7 @@ async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveC
             "icon": item["icon"],
             "category": "auftrag",
             "min_age": normalize_min_age(item["min_age"]),
+            "allow_together": bool(item.get("allow_together", True)),
             "interval": 0,
             "assignees": [],
             "subtasks": [],
@@ -3472,6 +3497,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 call.data.get("requires_routine") if call.data.get("requires_routine") is not None
                 else (template.get("requires_routine", False) if template else False)
             ),
+            "allow_together": _together_from(
+                call.data.get("allow_together") if call.data.get("allow_together") is not None
+                else (template.get("allow_together") if template else None),
+                call.data.get("category") or (template.get("category") if template else None),
+            ),
             "available_from": normalize_time(
                 call.data["available_from"] if "available_from" in call.data
                 else (template.get("available_from") if template else None)
@@ -3585,6 +3615,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             task_ref["requires_approval"] = bool(call.data["requires_approval"])
         if "requires_routine" in call.data:
             task_ref["requires_routine"] = bool(call.data["requires_routine"])
+        if "allow_together" in call.data:
+            task_ref["allow_together"] = bool(call.data["allow_together"])
         for key in ("available_from", "available_until"):
             if key in call.data:
                 task_ref[key] = normalize_time(call.data[key])
@@ -3621,6 +3653,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "min_age": normalize_min_age(call.data.get("min_age", 0)),
             "requires_approval": bool(call.data.get("requires_approval", False)),
             "requires_routine": bool(call.data.get("requires_routine", False)),
+            "allow_together": _together_from(call.data.get("allow_together"), call.data.get("category")),
             "available_from": normalize_time(call.data.get("available_from")),
             "available_until": normalize_time(call.data.get("available_until")),
             "interval": call.data.get("interval", 7),
@@ -3680,6 +3713,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             template_ref["requires_approval"] = bool(call.data["requires_approval"])
         if "requires_routine" in call.data:
             template_ref["requires_routine"] = bool(call.data["requires_routine"])
+        if "allow_together" in call.data:
+            template_ref["allow_together"] = bool(call.data["allow_together"])
         for key in ("available_from", "available_until"):
             if key in call.data:
                 template_ref[key] = normalize_time(call.data[key])

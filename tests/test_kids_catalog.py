@@ -399,3 +399,12 @@ def test_spread_never_starts_before_the_start_date():
     assert anna["own_laundry"] == "2026-11-06"            # Friday before would be in the past
     assert anna["bedding"] == "2026-11-01"
     assert all(t["due_date"] >= "2026-10-31" for t in kid(p, ANNA)["tasks"])
+
+
+def test_catalog_allow_together_flags():
+    by_key = kc.CATALOG_BY_KEY
+    shared = ("dishwasher_load", "table_set", "table_clear", "garden", "driveway", "plants", "pet_feed", "pet_clean")
+    personal = ("morning", "evening", "room_blitz", "room_blitz_small", "room_deep", "own_laundry", "bedding")
+    assert all(by_key[k]["allow_together"] for k in shared)
+    assert not any(by_key[k]["allow_together"] for k in personal)
+    assert all(e["allow_together"] for e in kc.CATALOG if e["category"] != "basis")

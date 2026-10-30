@@ -87,7 +87,11 @@ def _entry(
     trigger_hint_en: str | None = None,
     available_from: str | None = None, available_until: str | None = None,
     replaced_by: str | None = None, day_offset: int = 0,
+    allow_together: bool | None = None,
 ) -> dict:
+    # Shareable chores (and everything that is not a personal basis duty) may be done together
+    if allow_together is None:
+        allow_together = category != "basis"
     return {
         "key": key, "name_de": name_de, "name_en": name_en, "icon": icon,
         "points": points, "minutes": minutes, "min_age": min_age,
@@ -96,6 +100,7 @@ def _entry(
         "trigger_hint_de": trigger_hint_de, "trigger_hint_en": trigger_hint_en,
         "available_from": available_from, "available_until": available_until,
         "replaced_by": replaced_by, "day_offset": day_offset,
+        "allow_together": allow_together,
     }
 
 
@@ -124,21 +129,21 @@ CATALOG: tuple[dict, ...] = (
     # --- rotation basis, shared duties ---------------------------------
     _entry("table_set", "Tisch decken", "Set the table", "mdi:silverware-fork-knife", 2, 5, 6, 1,
            "basis", MODE_ROTATION,
-           subtasks=[_st("Teller", "Plates"), _st("Besteck", "Cutlery"), _st("Gläser", "Glasses")], available_from="17:00", available_until="19:30"),
+           subtasks=[_st("Teller", "Plates"), _st("Besteck", "Cutlery"), _st("Gläser", "Glasses")], available_from="17:00", available_until="19:30", allow_together=True),
     _entry("table_clear", "Tisch abräumen", "Clear the table", "mdi:table-chair", 2, 5, 6, 1,
-           "basis", MODE_ROTATION, available_from="18:00", available_until="20:30"),
+           "basis", MODE_ROTATION, available_from="18:00", available_until="20:30", allow_together=True),
     _entry("dishwasher_load", "Spülmaschine einräumen", "Load the dishwasher", "mdi:dishwasher-alert",
-           3, 10, 8, 1, "basis", MODE_ROTATION, requires="dishwasher", available_from="18:00", available_until="21:00"),
+           3, 10, 8, 1, "basis", MODE_ROTATION, requires="dishwasher", available_from="18:00", available_until="21:00", allow_together=True),
     _entry("plants", "Pflanzen gießen", "Water the plants", "mdi:watering-can", 2, 5, 6, 7,
-           "basis", MODE_ROTATION, available_from="14:00", available_until="19:00"),
+           "basis", MODE_ROTATION, available_from="14:00", available_until="19:00", allow_together=True),
     _entry("garden", "Mini-Garten: gießen & Unkraut (15 Min)", "Mini garden: water & weed (15 min)",
-           "mdi:flower", 4, 15, 8, 7, "basis", MODE_ROTATION, requires="garden", available_from="10:00", available_until="18:00"),
+           "mdi:flower", 4, 15, 8, 7, "basis", MODE_ROTATION, requires="garden", available_from="10:00", available_until="18:00", allow_together=True),
     _entry("driveway", "Hofeinfahrt kehren", "Sweep the driveway", "mdi:broom", 4, 15, 8, 7,
-           "basis", MODE_ROTATION, requires="driveway", available_from="10:00", available_until="18:00"),
+           "basis", MODE_ROTATION, requires="driveway", available_from="10:00", available_until="18:00", allow_together=True),
     _entry("pet_feed", "Tiere füttern", "Feed the pets", "mdi:paw", 2, 5, 6, 1,
-           "basis", MODE_ROTATION, requires="pets", available_from="07:00", available_until="19:00"),
+           "basis", MODE_ROTATION, requires="pets", available_from="07:00", available_until="19:00", allow_together=True),
     _entry("pet_clean", "Käfig/Katzenklo sauber machen", "Clean cage/litter box", "mdi:paw-outline",
-           4, 15, 9, 7, "basis", MODE_ROTATION, requires="pets", available_from="10:00", available_until="18:00"),
+           4, 15, 9, 7, "basis", MODE_ROTATION, requires="pets", available_from="10:00", available_until="18:00", allow_together=True),
     # --- weekly basis, one task per kid --------------------------------
     _entry("room_deep", "Zimmer gründlich", "Thorough room clean", "mdi:bed-king", 6, 30, 6, 7,
            "basis", MODE_EACH,
@@ -445,6 +450,7 @@ def build_proposal(
             "base_interval": entry["interval"],
             "interval_label": interval_label(interval, lang, entry["mode"] == MODE_ROTATION),
             "category": entry["category"],
+            "allow_together": entry["allow_together"],
             "available_from": entry["available_from"],
             "available_until": entry["available_until"],
             "replaced_by_key": entry["replaced_by"],
@@ -533,6 +539,7 @@ def build_proposal(
             "name_de": entry["name_de"], "name_en": entry["name_en"], "icon": entry["icon"],
             "points": pts(entry, key), "default_points": entry["points"], "min_age": entry["min_age"],
             "minutes": entry["minutes"], "category": "auftrag", "interval": 0,
+            "allow_together": entry["allow_together"],
             "selected": key not in excluded,
         })
 

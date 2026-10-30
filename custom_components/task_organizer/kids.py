@@ -78,6 +78,7 @@ ERR_NOT_FOUND = "not_found"
 ERR_NOT_YET = "not_yet"
 ERR_TOO_LATE = "too_late"
 ERR_STEPS_OPEN = "steps_open"
+ERR_TOGETHER_NOT_ALLOWED = "together_not_allowed"
 ERR_DUPLICATE_HELPER = "duplicate_helper"
 ERR_UNKNOWN_REWARD = "unknown_reward"
 ERR_REWARD_INACTIVE = "reward_inactive"
@@ -148,12 +149,26 @@ def normalize_min_age(value: Any) -> int:
     return max(0, min(MIN_AGE_MAX, age))
 
 
+def default_allow_together(category: Any) -> bool:
+    """Doing a task together is allowed by default for bonus / auftrag, not for basis duties."""
+    return normalize_category(category) != "basis"
+
+
+def allow_together(task: dict) -> bool:
+    """Whether a task may be done together with helpers (missing field -> default by category)."""
+    value = task.get("allow_together")
+    if value is None:
+        return default_allow_together(task.get("category"))
+    return bool(value)
+
+
 def migrate_task_like(item: dict) -> None:
     """Additively add ``category`` / ``min_age`` defaults to a task/template."""
     item["category"] = normalize_category(item.get("category"))
     item["min_age"] = normalize_min_age(item.get("min_age", 0))
     item["requires_approval"] = bool(item.get("requires_approval", False))
     item["requires_routine"] = bool(item.get("requires_routine", False))
+    item["allow_together"] = allow_together(item)
     item["available_from"] = normalize_time(item.get("available_from"))
     item["available_until"] = normalize_time(item.get("available_until"))
     item["reminder_at"] = normalize_time(item.get("reminder_at"))

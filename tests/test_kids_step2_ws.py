@@ -614,6 +614,7 @@ async def _team(hass, ws, **task_kw):
     await _make_kid(ws)
     await _make_kid(ws, BEN_ID, pin="5555")
     await _make_kid(ws, CLARA, pin="", birth_year=2020)
+    task_kw.setdefault("allow_together", True)
     return await _add_task(ws, complexity=5, **task_kw)
 
 
@@ -730,3 +731,60 @@ async def test_together_with_approval_creates_one_pending_for_all(hass, hass_ws_
     # approving again awards nothing more
     assert (await _call(ws, "task_organizer/approve", pending_id=pending["id"]))["result"]["success"] is False
     assert _data(hass)["points"][ANNA] == 2.7
+
+
+# ---------------------------------------------------------------------------
+# "Together allowed" per task
+# ---------------------------------------------------------------------------
+
+async def test_together_not_allowed_costs_no_pin_attempt(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    task_id = await _team(hass, ws, allow_together=False)
+    for _ in range(6):
+        res = await _together(ws, task_id, [{"kid_id": BEN_ID, "pin": "0000"}])
+        assert res == {"success": False, "error": "together_not_allowed"}
+    # Ben's PIN limiter is untouched and nothing was booked
+    assert (await _call(ws, "task_organizer/kid_verify_pin", kid_id=BEN_ID, pin="5555"))["result"]["success"]
+    assert _data(hass)["history"] == [] and task_id in _data(hass)["tasks"]
+    # alone it still works
+    assert (await _kid_complete(ws, task_id))["success"]
+
+
+async def test_allow_together_defaults_by_category_and_is_editable(hass, hass_ws_client, setup):
+    ws = await hass_ws_client(hass)
+    basis = await _add_task(ws, category="basis")
+    bonus = await _add_task(ws, category="bonus")
+    auftrag = await _add_task(ws, category="auftrag")
+    tasks = _data(hass)["tasks"]
+    assert [tasks[t]["allow_together"] for t in (basis, bonus, auftrag)] == [False, True, True]
+    assert (await _call(ws, "task_organizer/edit_task", task_id=basis, allow_together=True))["success"]
+    assert tasks[basis]["allow_together"] is True
+    # templates carry the flag, too
+    res = await _call(ws, "task_organizer/add_template", name="T", complexity=3, icon="mdi:broom", category="bonus")
+    tid = res["result"]["template_id"]
+    assert _data(hass)["templates"][tid]["allow_together"] is True
+    assert (await _call(ws, "task_organizer/edit_template", template_id=tid, allow_together=False))["success"]
+    assert _data(hass)["templates"][tid]["allow_together"] is False
+
+
+async def test_old_tasks_get_the_default_by_category(hass):
+    hass.states.async_set(ANNA, "home", {"friendly_name": "Anna"})
+    old = {
+        "tasks": {
+            "t1": {"id": "t1", "name": "A", "interval": 1, "complexity": 2, "icon": "mdi:broom", "assignees": [ANNA],
+                   "due_date": dt_util.utcnow().isoformat(), "subtasks": [], "category": "basis"},
+            "t2": {"id": "t2", "name": "B", "interval": 0, "complexity": 2, "icon": "mdi:broom", "assignees": [],
+                   "due_date": dt_util.utcnow().isoformat(), "subtasks": [], "category": "bonus"},
+        },
+        "points": {}, "history": [], "settings": {}, "monthly_history": {},
+        "current_month": dt_util.now().strftime("%Y-%m"),
+        "current_period_start": (dt_util.utcnow() - timedelta(days=1)).isoformat(), "templates": {},
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    _fake_http(hass)
+    with patch("homeassistant.helpers.storage.Store.async_load", return_value=old):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    tasks = _data(hass)["tasks"]
+    assert tasks["t1"]["allow_together"] is False and tasks["t2"]["allow_together"] is True

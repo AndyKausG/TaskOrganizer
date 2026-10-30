@@ -100,6 +100,12 @@ add_task:
       required: false
       selector:
         boolean:
+    allow_together:
+      name: Allow doing it together (Optional)
+      description: Kids mode - a kid may do this task together with other kids. Default - on for bonus and commission tasks, off for duties.
+      required: false
+      selector:
+        boolean:
     available_from:
       name: Available from (Optional)
       description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
@@ -256,6 +262,12 @@ edit_task_by_name:
       required: false
       selector:
         boolean:
+    allow_together:
+      name: Allow doing it together (Optional)
+      description: Kids mode - a kid may do this task together with other kids. Default - on for bonus and commission tasks, off for duties.
+      required: false
+      selector:
+        boolean:
     available_from:
       name: Available from (Optional)
       description: Kids mode - a kid can only complete the task from this local time on (HH:MM). Empty = no limit.
@@ -360,6 +372,12 @@ add_template:
     requires_routine:
       name: Bonus only after duties (Optional)
       description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    allow_together:
+      name: Allow doing it together (Optional)
+      description: Kids mode - a kid may do this task together with other kids. Default - on for bonus and commission tasks, off for duties.
       required: false
       selector:
         boolean:
@@ -484,6 +502,12 @@ edit_template_by_name:
     requires_routine:
       name: Bonus only after duties (Optional)
       description: Kids mode - this bonus task is locked while the kid has due duties (inside their time window) open. Ignored for spontaneous bonus tasks.
+      required: false
+      selector:
+        boolean:
+    allow_together:
+      name: Allow doing it together (Optional)
+      description: Kids mode - a kid may do this task together with other kids. Default - on for bonus and commission tasks, off for duties.
       required: false
       selector:
         boolean:
