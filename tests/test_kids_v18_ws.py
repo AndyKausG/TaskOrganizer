@@ -745,3 +745,85 @@ async def test_new_daily_task_after_window_starts_tomorrow(hass, hass_ws_client,
     tasks = _by_key(hass)
     assert _local_day(tasks["morning:person.anna"]) == dt_util.now().date() + timedelta(days=1)
     assert _local_day(tasks["evening:person.anna"]) == dt_util.now().date()
+
+
+# ---------------------------------------------------------------------------
+# parent actions on the kids card
+# ---------------------------------------------------------------------------
+
+async def test_parent_skip_today_advances_without_points(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    await _make_kid(ws)
+    tid = await _add_task(ws, assignees=[ANNA], interval=2)
+    res = await _call(ws, "task_organizer/parent_task_action", task_id=tid, action="skip_today")
+    assert res["success"] and res["result"]["success"] is True
+    task = _data(hass)["tasks"][tid]
+    assert dt_util.parse_datetime(task["due_date"]) == NOON + timedelta(days=2)
+    assert _data(hass)["points"].get(ANNA, 0) == 0
+    entry = _data(hass)["history"][0]
+    assert (entry["type"], entry["points"], entry["user_id"], entry["task_id"]) == ("skipped", 0, ANNA, tid)
+    assert entry["reason"] in ("Von Eltern ausgesetzt", "Skipped by parents")
+    assert [h for h in _data(hass)["history"] if h["type"] == "missed"] == []
+
+
+async def test_parent_skip_today_keeps_one_time_task(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    tid = await _add_task(ws, interval=0)
+    assert (await _call(ws, "task_organizer/parent_task_action", task_id=tid, action="skip_today"))["success"]
+    task = _data(hass)["tasks"][tid]                       # not deleted, hidden for today
+    assert task["paused_until"]
+    assert _data(hass)["history"][0]["type"] == "skipped"
+
+
+async def test_parent_postpone(hass, hass_ws_client, setup, freezer):
+    from custom_components.task_organizer.kids import task_status
+
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)
+    tid = await _add_task(ws, assignees=[ANNA])
+    res = await _call(ws, "task_organizer/parent_task_action", task_id=tid, action="postpone")
+    assert res["success"]
+    task = _data(hass)["tasks"][tid]
+    assert task_status(task, dt_util.now()) == "paused"
+    assert task_status(task, dt_util.now() + timedelta(days=1)) == "due"       # back tomorrow
+    res = await _call(ws, "task_organizer/parent_task_action", task_id=tid, action="postpone", until="2026-11-02")
+    assert res["success"]
+    assert task_status(task, dt_util.now() + timedelta(days=3)) == "paused"    # 2 Nov, local
+    assert task_status(task, dt_util.now() + timedelta(days=4)) == "due"
+    assert _data(hass)["history"] == []
+    for bad in ("2026-10-29", "garbage"):
+        res = await _call(ws, "task_organizer/parent_task_action", task_id=tid, action="postpone", until=bad)
+        assert res["error"]["code"] == "invalid_date"
+
+
+async def test_parent_complete_for_ignores_pin_window_steps(hass, hass_ws_client, setup, freezer):
+    ws = await hass_ws_client(hass)
+    freezer.move_to(NOON)                                  # 11:00 local
+    await _make_kid(ws)
+    tid = await _add_task(ws, assignees=[ANNA], available_from="17:00", requires_approval=True,
+                          subtasks=[{"name": "Step", "done": False}])
+    seen = _collect(hass, "task_organizer_task_completed")
+    res = await _call(ws, "task_organizer/parent_complete_for", task_id=tid, kid_id=ANNA)
+    assert res["success"] and res["result"]["points"] == 4
+    await hass.async_block_till_done()
+    assert _data(hass)["points"][ANNA] == 4
+    assert _data(hass)["history"][0]["type"] == "task" and _data(hass)["history"][0]["completion_id"]
+    assert seen and seen[0]["completed_by"] == [ANNA]
+    # a completion made this way can be undone
+    res = await _call(ws, "task_organizer/undo_completion", history_id=_data(hass)["history"][0]["id"])
+    assert res["success"] and _data(hass)["points"][ANNA] == 0
+
+
+async def test_parent_actions_unknown_task_or_kid(hass, hass_ws_client, setup):
+    ws = await hass_ws_client(hass)
+    for action in ("skip_today", "postpone"):
+        res = await _call(ws, "task_organizer/parent_task_action", task_id="nope", action=action)
+        assert res["result"] == {"success": False, "error": "not_found"}
+    res = await _call(ws, "task_organizer/parent_complete_for", task_id="nope", kid_id=ANNA)
+    assert res["result"] == {"success": False, "error": "not_found"}
+    tid = await _add_task(ws)
+    res = await _call(ws, "task_organizer/parent_complete_for", task_id=tid, kid_id="person.nobody")
+    assert res["result"] == {"success": False, "error": "unknown_kid"}
+    assert tid in _data(hass)["tasks"]

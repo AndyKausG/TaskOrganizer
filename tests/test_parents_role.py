@@ -81,6 +81,8 @@ COMMANDS = {
     "reject": ({"pending_id": "nope", "mode": "not_done"}, DAILY),
     "adjust_points": ({"kid_id": ANNA, "points": 1, "reason": "Help"}, DAILY),
     "undo_completion": ({"history_id": "nope"}, DAILY),
+    "parent_task_action": ({"task_id": "nope", "action": "skip_today"}, DAILY),
+    "parent_complete_for": ({"task_id": "nope", "kid_id": ANNA}, DAILY),
     "add_adhoc_bonus": ({"name": "Carry bags", "icon": "mdi:cart", "points": 2}, DAILY),
     "set_kid_profile": ({"participant_id": ANNA, "avatar": "🦊", "color": "#ff8800"}, MANAGE),
     "delete_kid_profile": ({"participant_id": ANNA}, MANAGE),

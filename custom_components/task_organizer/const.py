@@ -64,7 +64,8 @@ WS_TYPE_ADJUST_POINTS = "task_organizer/adjust_points"
 WS_TYPE_UNDO_COMPLETION = "task_organizer/undo_completion"
 WS_TYPE_ADD_ADHOC_BONUS = "task_organizer/add_adhoc_bonus"
 WS_TYPE_SET_PARENTS = "task_organizer/set_parents"
-WS_TYPE_SET_PARENTS = "task_organizer/set_parents"
+WS_TYPE_PARENT_TASK_ACTION = "task_organizer/parent_task_action"
+WS_TYPE_PARENT_COMPLETE_FOR = "task_organizer/parent_complete_for"
 
 # Service Names
 SERVICE_RESET_MONTHLY_POINTS = "reset_monthly_points"

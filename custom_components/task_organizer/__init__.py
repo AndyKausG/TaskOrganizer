@@ -72,6 +72,8 @@ from .const import (
     WS_TYPE_UNDO_COMPLETION,
     WS_TYPE_ADD_ADHOC_BONUS,
     WS_TYPE_SET_PARENTS,
+    WS_TYPE_PARENT_TASK_ACTION,
+    WS_TYPE_PARENT_COMPLETE_FOR,
     SERVICE_ADJUST_POINTS,
     SERVICE_ADD_TASK,
     SERVICE_COMPLETE_TASK_BY_NAME,
@@ -91,6 +93,7 @@ from .kids import (
     open_required_steps,
     DEFAULT_CLAIM_MINUTES,
     ERR_NOT_FOUND,
+    ERR_UNKNOWN_KID,
     ERR_NOT_YET,
     ERR_TOO_LATE,
     MAX_ADJUST_POINTS,
@@ -99,6 +102,7 @@ from .kids import (
     TYPE_BONUS,
     TYPE_MISSED,
     TYPE_PENALTY,
+    TYPE_SKIPPED,
     TYPE_TASK,
     PinLimiter,
     birthday_bonus_points,
@@ -1513,6 +1517,107 @@ async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.Acti
         "success": True, "removed": len(group), "points": removed_points,
         "task_id": entry.get("task_id"),
     })
+
+
+# ---------------------------------------------------------------------------
+# Parent actions on the kids card (admin / manager / parent)
+# ---------------------------------------------------------------------------
+
+def _local_day_end(day: date) -> str:
+    """ISO timestamp of the end of the local day ``day`` (``paused_until`` format)."""
+    return dt_util.as_utc(dt_util.start_of_local_day(day + timedelta(days=1)) - timedelta(seconds=1)).isoformat()
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_PARENT_TASK_ACTION,
+    vol.Required("task_id"): str,
+    vol.Required("action"): vol.In(["skip_today", "postpone"]),
+    vol.Optional("until"): vol.Any(None, str),
+})
+@websocket_api.async_response
+async def ws_parent_task_action(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Skip a task today or postpone it (admin / manager / parent).
+
+    ``skip_today``: the task moves to its next occurrence without points and
+    leaves a ``skipped`` history entry (not a missed duty). A one-time task is
+    never deleted this way: it is postponed to tomorrow instead.
+    ``postpone``: the task is hidden until ``until`` (``YYYY-MM-DD``, the first
+    day it is back, default tomorrow, must be in the future).
+    """
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
+        return
+    data = hass.data[DOMAIN]["data"]
+    task = data["tasks"].get(msg["task_id"])
+    if task is None:
+        connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
+        return
+
+    today = dt_util.now().date()
+    until = today + timedelta(days=1)
+    if msg.get("until"):
+        try:
+            until = date.fromisoformat(msg["until"])
+        except ValueError:
+            connection.send_error(msg["id"], "invalid_date", "until must be YYYY-MM-DD")
+            return
+        if until <= today:
+            connection.send_error(msg["id"], "invalid_date", "until must be in the future")
+            return
+
+    if msg["action"] == "postpone" or task.get("interval", 7) == 0:
+        task["paused_until"] = _local_day_end(until - timedelta(days=1))
+        task.pop("claimed_by", None)
+        task.pop("claimed_until", None)
+        if msg["action"] == "postpone":
+            connection.send_result(msg["id"], {"success": True, "paused_until": task["paused_until"]})
+            await hass.data[DOMAIN]["store"].async_save(data)
+            hass.bus.async_fire(EVENT_TASK_UPDATED)
+            return
+    else:
+        _advance_task(data, msg["task_id"])
+
+    reason = "Von Eltern ausgesetzt" if _lang(hass) == "de" else "Skipped by parents"
+    for uid in _assignee_ids(task) or [connection.user.id]:
+        data["history"].insert(0, {
+            "id": str(uuid.uuid4()),
+            "task_id": msg["task_id"],
+            "task_name": task.get("name") or "",
+            "user_id": uid,
+            "points": 0,
+            "timestamp": dt_util.utcnow().isoformat(),
+            "type": TYPE_SKIPPED,
+            "reason": reason,
+        })
+    await hass.data[DOMAIN]["store"].async_save(data)
+    hass.bus.async_fire(EVENT_TASK_UPDATED)
+    connection.send_result(msg["id"], {"success": True})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_PARENT_COMPLETE_FOR,
+    vol.Required("task_id"): str,
+    vol.Required("kid_id"): str,
+})
+@websocket_api.async_response
+async def ws_parent_complete_for(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Complete a task for a kid with 100 % of the points (admin / manager / parent).
+
+    A normal completion (history, events, next occurrence) that ignores the
+    kid's PIN, the time window, open steps and approval rules.
+    """
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
+        return
+    task = hass.data[DOMAIN]["data"]["tasks"].get(msg["task_id"])
+    if task is None:
+        connection.send_result(msg["id"], {"success": False, "error": ERR_NOT_FOUND})
+        return
+    kid_id = _get_user_id(hass, msg["kid_id"])
+    if not kid_id or not _known_participant(hass, kid_id):
+        connection.send_result(msg["id"], {"success": False, "error": ERR_UNKNOWN_KID})
+        return
+    points = round(float(task.get("complexity", 1)), 1)
+    await _async_complete_task_internal(hass, msg["task_id"], [kid_id], {kid_id: 100})
+    connection.send_result(msg["id"], {"success": True, "points": points, "task_name": task.get("name")})
 
 
 # ---------------------------------------------------------------------------
@@ -3090,6 +3195,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_undo_completion)
     websocket_api.async_register_command(hass, ws_add_adhoc_bonus)
     websocket_api.async_register_command(hass, ws_set_parents)
+    websocket_api.async_register_command(hass, ws_parent_task_action)
+    websocket_api.async_register_command(hass, ws_parent_complete_for)
     
     # Register static path for frontend cards
     frontend_path = hass.config.path(f"custom_components/{DOMAIN}/www")
