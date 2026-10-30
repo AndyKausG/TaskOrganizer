@@ -199,6 +199,20 @@ function toSetBdayBind(root) {
   });
 }
 
+/**
+ * Options for a time select ("HH:MM", 15-minute steps). Used instead of
+ * <input type="time">, whose native picker crashes some browsers (Safari)
+ * inside the dialogs. A value outside the steps is kept as its own option.
+ */
+function toSetTTimeOptions(value, emptyLabel) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const times = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  if (v && !times.includes(v)) { times.push(v); times.sort(); }
+  return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
+    times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
+
 class TaskOrganizerSettings extends HTMLElement {
   /**
    * Initializes the TaskOrganizerSettings element.
@@ -1778,11 +1792,11 @@ class TaskOrganizerSettings extends HTMLElement {
               <div class="form-row">
                   <div class="form-col">
                       <label class="form-label" for="tmpl-available-from">${this.localize('available_from_lbl')}</label>
-                      <input id="tmpl-available-from" type="time" class="form-select" value="${template?.available_from || ''}">
+                      <select id="tmpl-available-from" class="form-select">${toSetTTimeOptions(template?.available_from || '', '—')}</select>
                   </div>
                   <div class="form-col">
                       <label class="form-label" for="tmpl-available-until">${this.localize('available_until_lbl')}</label>
-                      <input id="tmpl-available-until" type="time" class="form-select" value="${template?.available_until || ''}">
+                      <select id="tmpl-available-until" class="form-select">${toSetTTimeOptions(template?.available_until || '', '—')}</select>
                   </div>
               </div>
               <ha-formfield label="${this.localize('approval_lbl')}">

@@ -99,6 +99,20 @@ window.customCards.push({
   preview: true,
 });
 
+/**
+ * Options for a time select ("HH:MM", 15-minute steps). Used instead of
+ * <input type="time">, whose native picker crashes some browsers (Safari)
+ * inside the dialogs. A value outside the steps is kept as its own option.
+ */
+function toCardTimeOptions(value, emptyLabel) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const times = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  if (v && !times.includes(v)) { times.push(v); times.sort(); }
+  return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
+    times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
+
 class TaskOrganizerCard extends HTMLElement {
   /**
    * Initializes the TaskOrganizerCard element and its internal state.
@@ -1130,8 +1144,8 @@ class TaskOrganizerCard extends HTMLElement {
     if (routine) routine.checked = !!requiresRoutine;
     const from = this.shadowRoot.getElementById('f-available-from');
     const until = this.shadowRoot.getElementById('f-available-until');
-    if (from) from.value = availableFrom || '';
-    if (until) until.value = availableUntil || '';
+    if (from) from.innerHTML = toCardTimeOptions(availableFrom || '', '—');
+    if (until) until.innerHTML = toCardTimeOptions(availableUntil || '', '—');
     const sel = this.shadowRoot.getElementById('f-category');
     const age = this.shadowRoot.getElementById('f-min-age');
     const approval = this.shadowRoot.getElementById('f-approval');
@@ -1467,11 +1481,11 @@ class TaskOrganizerCard extends HTMLElement {
                     <div class="form-row">
                         <div class="form-col">
                             <label class="form-label" for="f-available-from">${this.localize('available_from_lbl')}</label>
-                            <input id="f-available-from" type="time" class="form-select">
+                            <select id="f-available-from" class="form-select">${toCardTimeOptions('', '—')}</select>
                         </div>
                         <div class="form-col">
                             <label class="form-label" for="f-available-until">${this.localize('available_until_lbl')}</label>
-                            <input id="f-available-until" type="time" class="form-select">
+                            <select id="f-available-until" class="form-select">${toCardTimeOptions('', '—')}</select>
                         </div>
                     </div>
                     <ha-formfield label="${this.localize('approval_lbl')}">

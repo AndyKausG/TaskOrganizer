@@ -104,6 +104,20 @@ function fmtParents(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+/**
+ * Options for a time select ("HH:MM", 15-minute steps). Used instead of
+ * <input type="time">, whose native picker crashes some browsers (Safari)
+ * inside the dialogs. A value outside the steps is kept as its own option.
+ */
+function parTimeOptions(value, emptyLabel) {
+  const v = /^\d{2}:\d{2}$/.test(value || '') ? value : '';
+  const times = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 15) times.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  if (v && !times.includes(v)) { times.push(v); times.sort(); }
+  return `<option value="" ${v ? '' : 'selected'}>${emptyLabel}</option>` +
+    times.map(t => `<option value="${t}" ${t === v ? 'selected' : ''}>${t}</option>`).join('');
+}
+
 class TaskOrganizerParents extends HTMLElement {
   constructor() {
     super();
@@ -551,7 +565,7 @@ class TaskOrganizerParents extends HTMLElement {
         <div class="chips">
           <button class="chip ${a.expiry === 'none' ? 'on' : ''}" data-action="adhoc-expiry" data-mode="none" aria-pressed="${a.expiry === 'none'}">${escParents(this.localize('adhoc_no_expiry'))}</button>
           <button class="chip ${a.expiry === 'today' ? 'on' : ''}" data-action="adhoc-expiry" data-mode="today" aria-pressed="${a.expiry === 'today'}">${escParents(this.localize('adhoc_today_until'))}</button>
-          ${a.expiry === 'today' ? `<input id="adhoc-time" class="time" type="time" value="${escParents(a.time)}" aria-label="${escParents(this.localize('adhoc_today_until'))}">` : ''}
+          ${a.expiry === 'today' ? `<select id="adhoc-time" class="time" aria-label="${escParents(this.localize('adhoc_today_until'))}">${parTimeOptions(a.time, '—')}</select>` : ''}
         </div>
         <div class="warn" id="adhoc-past" hidden>${escParents(this.localize('adhoc_past'))}</div>
         <div class="dialog-actions">
