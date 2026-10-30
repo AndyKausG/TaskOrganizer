@@ -312,6 +312,9 @@ class TaskOrganizerKids extends HTMLElement {
     if (!(top >= 0)) return;
     const h = Math.max(0, Math.floor(window.innerHeight - top));
     if (h > 0) this.style.setProperty('--to-fit-height', `${h}px`);
+    // Compact home screen when the height is tight (e.g. a 1280x800 tablet with
+    // the HA toolbar): smaller rings and tiles so rocket and bonus board fit.
+    this.toggleAttribute('short', h > 0 && h < 820);
   }
 
   /**
@@ -1578,7 +1581,11 @@ class TaskOrganizerKids extends HTMLElement {
     let laps = '';
     if (kid.goal > 0) {
       const raw = Math.max(0, kid.pctRaw === undefined ? kid.pct : kid.pctRaw) / 100;
-      const shades = ['var(--kc)', 'color-mix(in srgb, var(--kc) 68%, #000)', 'color-mix(in srgb, var(--kc) 42%, #000)'];
+      // Dark theme: further laps get lighter (dark shades vanish on a dark background)
+      const dark = !!(this._hass && this._hass.themes && this._hass.themes.darkMode);
+      const shades = dark
+        ? ['var(--kc)', 'color-mix(in srgb, var(--kc) 55%, #fff)', 'color-mix(in srgb, var(--kc) 25%, #fff)']
+        : ['var(--kc)', 'color-mix(in srgb, var(--kc) 68%, #000)', 'color-mix(in srgb, var(--kc) 42%, #000)'];
       laps = arc(Math.min(1, raw), shades[0]);
       for (let lap = 1; lap < 3 && raw > lap; lap++) {
         const fraction = Math.min(1, raw - lap);
@@ -1985,6 +1992,27 @@ class TaskOrganizerKids extends HTMLElement {
       .chip-name { font-size: 22px; font-weight: 800; line-height: 1.15; }
       .chip-meta { font-size: 20px; font-weight: 700; color: var(--k-sub); }
       .chip-claim { width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--kc) 30%, var(--k-card)); border: 3px solid var(--kc); display: grid; place-items: center; font-size: 28px; flex: none; }
+
+      /* compact home screen for low heights (set in _fitHeight) */
+      :host([short]) .root { gap: 10px; padding: 10px 20px 12px; }
+      :host([short]) .top { min-height: 40px; }
+      :host([short]) .title { font-size: 30px; }
+      :host([short]) .clock { font-size: 24px; }
+      :host([short]) .tiles { grid-auto-rows: minmax(200px, 300px); gap: 14px; }
+      :host([short]) .tile { gap: 4px; padding: 10px; }
+      :host([short]) .tile .ring-wrap { width: 120px; height: 120px; }
+      :host([short]) .tile .ring-wrap .avatar { font-size: 58px; }
+      :host([short]) .tile .ring-wrap .trophy { font-size: 34px; }
+      :host([short]) .name { font-size: 28px; }
+      :host([short]) .pts { font-size: 24px; }
+      :host([short]) .badge { min-height: 38px; padding: 4px 14px; font-size: 19px; }
+      :host([short]) .family { min-height: 70px; padding: 8px 22px; }
+      :host([short]) .fam-title { font-size: 24px; }
+      :host([short]) .fam-reward { font-size: 18px; }
+      :host([short]) .fam-num { font-size: 24px; }
+      :host([short]) .board-title { font-size: 22px; }
+      :host([short]) .chip { min-height: 64px; }
+      :host([short]) .chip-icon { width: 44px; height: 44px; }
 
       /* ---------- kid view ---------- */
       .kv-head { display: flex; align-items: center; gap: 28px; min-height: 108px; }
