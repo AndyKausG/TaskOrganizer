@@ -372,6 +372,36 @@ action:
         tag: "to_{{ trigger.event.data.pending_id }}"
 ```
 
+### Reward shop
+
+Kids can spend their points on rewards chosen by the parents.
+
+* **Wallet:** every point a kid earns (task, approval, team bonus, birthday bonus, manual bonus, "complete for kid") is also credited to a per-kid wallet (`wallet` in `get_data`). Penalties, undo and deleting/editing history entries debit it (never below 0). The wallet is **not** reset at the monthly reset, so the monthly points, goals and family goal work as before. On the first start with the shop the wallet is initialised with the current month points.
+* **Rewards:** settings card or parents card (admins and managers: "Manage rewards"): emoji, name, cost (1-1000), minimum age and active flag, at most 30. "Load suggestions" adds a starter set. Command `task_organizer/set_rewards`; `update_settings` and imports never touch rewards, wallet or redemptions.
+* **Kids card:** a "🛍️ Shop" button in the kid view (hidden without active rewards) opens the shop: balance, rewards as cards (affordable ones highlighted, others with progress "noch 23 ⭐"), "Einlösen" with confirmation and a "⭐ Sparziel" toggle. The savings goal is shown as a small bar on the home tile. Redeeming (`kid_redeem`, PIN checked) deducts at once and creates a pending redemption.
+* **Parents card:** section "Einlösungen" with "✅ Einlösen" (`redemption_resolve`, `approve: true`, marks it done) and "↩️ Ablehnen" (refunds the wallet, history type `refund`). The wallet balance is shown next to the monthly points. Redeem/refund history entries (`redeem`, `refund`) never change the monthly points.
+* **Events:** `task_organizer_reward_requested` (`redemption_id`, `kid_id`, `kid_name`, `reward_id`, `name`, `emoji`, `cost`) and `task_organizer_reward_resolved` (same plus `result`: `approved` | `rejected`).
+
+Actionable notification (`TO_RAPPROVE_<id>` / `TO_RREJECT_<id>`, idempotent like the approval actions):
+
+```yaml
+alias: Ask parents about a reward
+trigger:
+  - platform: event
+    event_type: task_organizer_reward_requested
+action:
+  - service: notify.mobile_app_alexs_phone
+    data:
+      title: "{{ trigger.event.data.kid_name }}: {{ trigger.event.data.emoji }} {{ trigger.event.data.name }}"
+      message: "{{ trigger.event.data.cost }} points spent"
+      data:
+        actions:
+          - action: "TO_RAPPROVE_{{ trigger.event.data.redemption_id }}"
+            title: "✅ Redeem"
+          - action: "TO_RREJECT_{{ trigger.event.data.redemption_id }}"
+            title: "↩️ Decline (refund)"
+```
+
 ### Bonus points and deductions
 The websocket command `task_organizer/adjust_points` (admin, manager or parent) (`kid_id`, `points` +-1..50, `reason` required, max 80 characters) and the service `task_organizer.adjust_points` add a history entry of type `bonus` or `penalty` with the reason. A kid never drops below 0 points (the applied amount is recorded). History entries have an optional `type` (`task` for old entries, `bonus`, `penalty`, `birthday`) and `reason`; the protocol card shows them with icons, deleting a deduction refunds it. The type `missed` (0 points) marks an [expired duty](#missed-duties).
 

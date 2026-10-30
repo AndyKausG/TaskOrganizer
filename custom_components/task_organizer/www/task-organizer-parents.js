@@ -40,7 +40,14 @@ const I18N_PARENTS = {
     adhoc_points: "Points", adhoc_for: "For", adhoc_all: "All kids", adhoc_min_age: "Minimum age",
     adhoc_age_any: "any", adhoc_expiry: "Valid until", adhoc_no_expiry: "No expiry", adhoc_today_until: "Today until",
     adhoc_past: "That time has already passed today.", adhoc_create: "Create bonus", toast_adhoc: "Bonus created",
-    icon_cart: "Shopping", icon_bread: "Bread", icon_basket: "Laundry", icon_broom: "Sweeping", icon_package: "Parcel", icon_dog: "Dog", icon_star: "Star"
+    icon_cart: "Shopping", icon_bread: "Bread", icon_basket: "Laundry", icon_broom: "Sweeping", icon_package: "Parcel", icon_dog: "Dog", icon_star: "Star",
+    type_redeem: "Reward", type_refund: "Refund", wallet: "Wallet",
+    redemptions: "Redemptions", no_redemptions: "No reward is waiting.", rd_approve: "Redeem", rd_reject: "Decline",
+    toast_rd_done: "Marked as redeemed", toast_rd_rejected: "Declined, {n} ⭐ refunded",
+    rewards_edit: "Manage rewards", rewards_title: "Rewards", rewards_none: "No rewards yet.", rewards_add: "Add reward",
+    rewards_suggest: "Load suggestions", rewards_name: "Name", rewards_cost: "Cost (⭐)", rewards_age: "From age",
+    rewards_active: "Active", rewards_delete: "Delete", rewards_save: "Save", toast_rewards_saved: "Rewards saved",
+    rewards_invalid: "Please give every reward a name and a cost from 1 to 1000.", rewards_max: "At most 30 rewards."
   },
   de: {
     title: "Eltern", only_parents: "Nur für Eltern. Ein Administrator kann Ihren Benutzer in den Einstellungen eintragen (Kinder > Eltern).",
@@ -69,8 +76,23 @@ const I18N_PARENTS = {
     adhoc_points: "Punkte", adhoc_for: "Für", adhoc_all: "Alle Kinder", adhoc_min_age: "Mindestalter",
     adhoc_age_any: "egal", adhoc_expiry: "Gültig bis", adhoc_no_expiry: "Kein Ablauf", adhoc_today_until: "Heute bis",
     adhoc_past: "Diese Uhrzeit ist heute schon vorbei.", adhoc_create: "Bonus anlegen", toast_adhoc: "Bonus angelegt",
-    icon_cart: "Einkauf", icon_bread: "Brot", icon_basket: "Wäsche", icon_broom: "Fegen", icon_package: "Paket", icon_dog: "Hund", icon_star: "Stern"
+    icon_cart: "Einkauf", icon_bread: "Brot", icon_basket: "Wäsche", icon_broom: "Fegen", icon_package: "Paket", icon_dog: "Hund", icon_star: "Stern",
+    type_redeem: "Belohnung", type_refund: "Erstattung", wallet: "Guthaben",
+    redemptions: "Einlösungen", no_redemptions: "Es wartet keine Belohnung.", rd_approve: "Einlösen", rd_reject: "Ablehnen",
+    toast_rd_done: "Als eingelöst markiert", toast_rd_rejected: "Abgelehnt, {n} ⭐ zurückgebucht",
+    rewards_edit: "Belohnungen verwalten", rewards_title: "Belohnungen", rewards_none: "Noch keine Belohnungen.", rewards_add: "Belohnung hinzufügen",
+    rewards_suggest: "Vorschläge laden", rewards_name: "Name", rewards_cost: "Preis (⭐)", rewards_age: "Ab Alter",
+    rewards_active: "Aktiv", rewards_delete: "Löschen", rewards_save: "Speichern", toast_rewards_saved: "Belohnungen gespeichert",
+    rewards_invalid: "Bitte jeder Belohnung einen Namen und einen Preis von 1 bis 1000 geben.", rewards_max: "Höchstens 30 Belohnungen."
   }
+};
+
+const PARENTS_REWARD_EMOJIS = ['📺', '🍨', '🎲', '🌙', '🎟️', '🎮', '🍕', '🎁', '🚲', '📚', '🧸', '🎬', '🏊', '⚽'];
+const PARENTS_REWARD_SUGGESTIONS = {
+  de: [['📺', '15 Minuten Medienzeit', 15], ['🍨', 'Nachtisch aussuchen', 20], ['🎲', 'Spieleabend bestimmen', 60],
+       ['🌙', '30 Minuten später ins Bett', 80], ['🎟️', 'Ausflug mit Mama oder Papa allein', 200]],
+  en: [['📺', '15 minutes of screen time', 15], ['🍨', 'Pick the dessert', 20], ['🎲', 'Choose game night', 60],
+       ['🌙', 'Stay up 30 minutes later', 80], ['🎟️', 'Outing alone with mom or dad', 200]]
 };
 
 window.customCards = window.customCards || [];
@@ -81,7 +103,7 @@ window.customCards.push({
   preview: false,
 });
 
-const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️' };
+const PARENTS_TYPE_ICONS = { task: '✅', bonus: '⭐', penalty: '⚠️', birthday: '🎂', missed: '⏭️', skipped: '⏸️', redeem: '🛍️', refund: '↩️' };
 
 /** Icon chips of the spontaneous bonus sheet: emoji + the mdi icon stored in the task. */
 const PARENTS_ADHOC_ICONS = [
@@ -137,6 +159,9 @@ class TaskOrganizerParents extends HTMLElement {
     this._confirm = null;         // pending id of the "cheated" dialog
     this._undo = null;            // history id of the "undo" dialog
     this._adhoc = null;           // state of the spontaneous bonus sheet
+    this._rw = null;              // reward editor state { list }
+    this.wallet = {};
+    this.redemptions = {};
     this._toastTimer = null;
     this.shadowRoot.innerHTML = `<style>${this._styles()}</style><div id="app"></div><div id="layer"></div><div id="toast" role="status" aria-live="polite"></div>`;
     this.shadowRoot.addEventListener('click', (ev) => this._onClick(ev));
@@ -221,6 +246,8 @@ class TaskOrganizerParents extends HTMLElement {
       this.history = Array.isArray(data.history) ? data.history : [];
       this.points = data.points || {};
       this.settings = data.settings || {};
+      this.wallet = data.wallet || {};
+      this.redemptions = data.redemptions || {};
       this._fetched = true;
       this._render();
     }).catch((err) => console.error("TaskOrganizer Parents: could not load data", err));
@@ -254,6 +281,7 @@ class TaskOrganizerParents extends HTMLElement {
       avatar: p.avatar || '🙂',
       color: /^#[0-9a-fA-F]{3,6}$/.test(p.color || '') ? p.color : '#4CAF50',
       points: parseFloat(this.points[id]) || 0,
+      wallet: parseFloat((this.wallet || {})[id]) || 0,
       goal: parseFloat(goals[id]) || 0,
       strict_until: p.strict_until || null
     }));
@@ -263,6 +291,15 @@ class TaskOrganizerParents extends HTMLElement {
 
   _kid(id) {
     return this._kids().find(k => k.id === id) || { id, name: (this._persons()[id] || {}).name || id, avatar: '🙂', color: '#4CAF50', points: 0, goal: 0 };
+  }
+
+  _canManage() {
+    return (this._hass && this._hass.user && this._hass.user.is_admin) || ['admin', 'manager'].includes(this._myRole);
+  }
+
+  _pendingRedemptions() {
+    return Object.values(this.redemptions || {}).filter(r => r.status === 'pending')
+      .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
   }
 
   _pendingList() {
@@ -324,6 +361,15 @@ class TaskOrganizerParents extends HTMLElement {
 
   _onInput(ev) {
     const el = ev.target;
+    if (el.dataset && el.dataset.rw !== undefined && this._rw) {
+      const row = this._rw.list[parseInt(el.dataset.rw)];
+      if (!row) return;
+      const f = el.dataset.f;
+      if (f === 'active') row.active = el.checked;
+      else if (f === 'cost' || f === 'min_age') row[f] = el.value === '' ? '' : parseInt(el.value);
+      else row[f] = el.value;
+      return;
+    }
     if (el.id === 'reason-input' && this._sheet) {
       this._sheet.reason = el.value;
       this._updateSheetState();
@@ -344,7 +390,7 @@ class TaskOrganizerParents extends HTMLElement {
     else if (action === 'not-done') this._reject(el.dataset.id, 'not_done');
     else if (action === 'cheated') { this._confirm = el.dataset.id; this._renderLayer(); }
     else if (action === 'cheated-confirm') { const id = this._confirm; this._confirm = null; this._renderLayer(); this._reject(id, 'cheated'); }
-    else if (action === 'dialog-close') { this._confirm = null; this._sheet = null; this._undo = null; this._adhoc = null; this._renderLayer(); }
+    else if (action === 'dialog-close') { this._confirm = null; this._sheet = null; this._undo = null; this._adhoc = null; this._rw = null; this._renderLayer(); }
     else if (action === 'undo') { this._undo = el.dataset.id; this._renderLayer(); }
     else if (action === 'undo-confirm') this._doUndo();
     else if (action === 'adhoc-open') this._openAdhoc();
@@ -352,6 +398,135 @@ class TaskOrganizerParents extends HTMLElement {
     else if (action === 'adjust') this._openSheet(el.dataset.kid, parseInt(el.dataset.amount));
     else if (action === 'chip') this._pickChip(el.dataset.text);
     else if (action === 'adjust-confirm') this._submitAdjust();
+    else if (action === 'rd-approve') this._resolveRedemption(el.dataset.id, true);
+    else if (action === 'rd-reject') this._resolveRedemption(el.dataset.id, false);
+    else if (action === 'rw-open') this._openRewards();
+    else if (action === 'rw-add') this._rewardsAdd(false);
+    else if (action === 'rw-suggest') this._rewardsAdd(true);
+    else if (action === 'rw-del') { this._rw.list.splice(parseInt(el.dataset.idx), 1); this._renderLayer(); }
+    else if (action === 'rw-save') this._saveRewards();
+  }
+
+  async _resolveRedemption(id, approve) {
+    if (!id || this._busy.has(id)) return;
+    const rec = (this.redemptions || {})[id];
+    this._busy.add(id);
+    this._render();
+    try {
+      const res = await this._hass.callWS({ type: 'task_organizer/redemption_resolve', redemption_id: id, approve });
+      if (!res.success) this._toast(this.localize('toast_gone'));
+      else this._toast(approve ? this.localize('toast_rd_done') : this.localize('toast_rd_rejected', { n: fmtParents(rec ? rec.cost : 0) }));
+    } catch (err) {
+      this._toast(this.localize('err') + (err && err.message ? err.message : ''));
+    }
+    this._busy.delete(id);
+    this._fetchData();
+  }
+
+  _openRewards() {
+    const list = ((this.settings && this.settings.rewards) || []).map(r => ({
+      id: r.id, emoji: r.emoji || '🎁', name: r.name || '', cost: parseInt(r.cost) || 10, min_age: parseInt(r.min_age) || 0, active: r.active !== false
+    }));
+    this._rw = { list };
+    this._renderLayer();
+  }
+
+  _rewardsAdd(suggestions) {
+    if (!this._rw) return;
+    const lang = ((this._hass && this._hass.language) || 'en').substring(0, 2);
+    const items = suggestions
+      ? (PARENTS_REWARD_SUGGESTIONS[lang] || PARENTS_REWARD_SUGGESTIONS.en).map(([emoji, name, cost]) => ({ emoji, name, cost, min_age: 0, active: true }))
+      : [{ emoji: '🎁', name: '', cost: 10, min_age: 0, active: true }];
+    for (const item of items) {
+      if (suggestions && this._rw.list.some(r => r.name.trim().toLowerCase() === item.name.toLowerCase())) continue;
+      if (this._rw.list.length >= 30) { this._toast(this.localize('rewards_max')); break; }
+      this._rw.list.push(item);
+    }
+    this._renderLayer();
+  }
+
+  async _saveRewards() {
+    if (!this._rw || this._busy.has('rewards')) return;
+    const rewards = this._rw.list.map(r => ({ ...r, name: String(r.name || '').trim() }));
+    if (rewards.some(r => !r.name || !(r.cost >= 1 && r.cost <= 1000) || !(r.min_age >= 0 && r.min_age <= 18))) {
+      this._toast(this.localize('rewards_invalid'));
+      return;
+    }
+    this._busy.add('rewards');
+    try {
+      await this._hass.callWS({ type: 'task_organizer/set_rewards', rewards: rewards.map(r => { const c = { ...r }; if (!c.id) delete c.id; return c; }) });
+      this._rw = null;
+      this._renderLayer();
+      this._toast(this.localize('toast_rewards_saved'));
+    } catch (err) {
+      this._toast(this.localize('err') + (err && err.message ? err.message : ''));
+    }
+    this._busy.delete('rewards');
+    this._fetchData();
+  }
+
+  _renderRewardsSheet() {
+    const rows = this._rw.list.map((r, i) => {
+      const emojis = PARENTS_REWARD_EMOJIS.includes(r.emoji) ? PARENTS_REWARD_EMOJIS : PARENTS_REWARD_EMOJIS.concat([r.emoji]);
+      const ages = Array.from({ length: 19 }, (_, a) => `<option value="${a}" ${a === r.min_age ? 'selected' : ''}>${a === 0 ? '—' : a}</option>`).join('');
+      return `
+        <div class="rw-row">
+          <select class="rw-emoji" data-rw="${i}" data-f="emoji" aria-label="Emoji">${emojis.map(e => `<option value="${escParents(e)}" ${e === r.emoji ? 'selected' : ''}>${escParents(e)}</option>`).join('')}</select>
+          <input class="rw-name" type="text" maxlength="40" data-rw="${i}" data-f="name" value="${escParents(r.name)}" placeholder="${escParents(this.localize('rewards_name'))}" aria-label="${escParents(this.localize('rewards_name'))}">
+          <button class="rw-del" data-action="rw-del" data-idx="${i}" aria-label="${escParents(this.localize('rewards_delete'))}" title="${escParents(this.localize('rewards_delete'))}">🗑️</button>
+          <div class="rw-meta">
+            <label class="rw-f">⭐ <input class="rw-cost" type="number" min="1" max="1000" inputmode="numeric" data-rw="${i}" data-f="cost" value="${r.cost === '' ? '' : r.cost}" aria-label="${escParents(this.localize('rewards_cost'))}"></label>
+            <label class="rw-f"><span>${escParents(this.localize('rewards_age'))}</span><select data-rw="${i}" data-f="min_age">${ages}</select></label>
+            <label class="rw-f"><input type="checkbox" data-rw="${i}" data-f="active" ${r.active ? 'checked' : ''}><span>${escParents(this.localize('rewards_active'))}</span></label>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="scrim" data-action="dialog-close"></div>
+      <div class="sheet adhoc" role="dialog" aria-modal="true" aria-label="${escParents(this.localize('rewards_title'))}" style="--kc:#F9A825">
+        <div class="grab"></div>
+        <h3>🛍️ ${escParents(this.localize('rewards_title'))}</h3>
+        <div class="rw-list">${rows || `<div class="empty small">${escParents(this.localize('rewards_none'))}</div>`}</div>
+        <div class="chips">
+          <button class="chip" data-action="rw-add">➕ ${escParents(this.localize('rewards_add'))}</button>
+          <button class="chip" data-action="rw-suggest">💡 ${escParents(this.localize('rewards_suggest'))}</button>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn neutral" data-action="dialog-close">${escParents(this.localize('cancel'))}</button>
+          <button class="btn ok solid" data-action="rw-save">${escParents(this.localize('rewards_save'))}</button>
+        </div>
+      </div>`;
+  }
+
+  _renderRedemptions() {
+    const list = this._pendingRedemptions();
+    const hasRewards = ((this.settings && this.settings.rewards) || []).length > 0;
+    if (!list.length && !hasRewards && !this._canManage()) return '';
+    const items = list.map(r => {
+      const kid = this._kid(r.kid_id);
+      const busy = this._busy.has(r.id) ? 'disabled' : '';
+      return `
+        <article class="appr" style="--kc:${kid.color}">
+          <div class="appr-top">
+            ${this._avatar(kid)}
+            <div class="appr-main">
+              <div class="appr-task">${escParents(r.emoji || '')} ${escParents(r.name)}</div>
+              <div class="appr-meta">${escParents(kid.name)} · ${escParents(this._ago(r.timestamp))}</div>
+            </div>
+            <div class="appr-pts">⭐ ${fmtParents(r.cost)}</div>
+          </div>
+          <div class="appr-actions two">
+            <button class="btn ok" data-action="rd-approve" data-id="${escParents(r.id)}" ${busy}>✅ ${escParents(this.localize('rd_approve'))}</button>
+            <button class="btn neutral" data-action="rd-reject" data-id="${escParents(r.id)}" ${busy}>↩️ ${escParents(this.localize('rd_reject'))}</button>
+          </div>
+        </article>`;
+    }).join('');
+    return `
+      <section>
+        <h2>🛍️ ${escParents(this.localize('redemptions'))} ${list.length ? `<span class="count">${list.length}</span>` : ''}</h2>
+        ${items ? `<div class="appr-list">${items}</div>` : `<div class="empty">${escParents(this.localize('no_redemptions'))}</div>`}
+        ${this._canManage() ? `<button class="adhoc-btn rw-btn" data-action="rw-open">✏️ ${escParents(this.localize('rewards_edit'))}</button>` : ''}
+      </section>`;
   }
 
   async _approve(pendingId) {
@@ -599,7 +774,7 @@ class TaskOrganizerParents extends HTMLElement {
     } else if (!this._fetched) {
       body = `<div class="note">${escParents(this.localize('loading'))}</div>`;
     } else {
-      body = `${this._renderApprovals()}${this._renderKids()}`;
+      body = `${this._renderApprovals()}${this._renderRedemptions()}${this._renderKids()}`;
     }
     app.innerHTML = `<ha-card><div class="head">${title}</div><div class="body">${body}</div></ha-card>`;
     // The dialog layer is not rebuilt on data refreshes (it would reset what is typed);
@@ -648,6 +823,7 @@ class TaskOrganizerParents extends HTMLElement {
     if (!kids.length) {
       return `<section><h2>${escParents(this.localize('kids'))}</h2><div class="empty">${escParents(this.localize('no_kids'))}</div></section>`;
     }
+    const showWallet = ((this.settings && this.settings.rewards) || []).length > 0 || Object.keys(this.wallet || {}).length > 0;
     const cards = kids.map(kid => {
       const pct = kid.goal > 0 ? Math.min(100, Math.round(kid.points / kid.goal * 100)) : 0;
       const entries = this.history.filter(h => h.user_id === kid.id).slice(0, 10);
@@ -661,7 +837,7 @@ class TaskOrganizerParents extends HTMLElement {
             ${this._avatar(kid)}
             <div class="kid-main">
               <div class="kid-name">${escParents(kid.name)}</div>
-              <div class="kid-pts">⭐ ${fmtParents(kid.points)}${kid.goal > 0 ? ` <small>/ ${fmtParents(kid.goal)} ${escParents(this.localize('goal'))}</small>` : ''}</div>
+              <div class="kid-pts">⭐ ${fmtParents(kid.points)}${kid.goal > 0 ? ` <small>/ ${fmtParents(kid.goal)} ${escParents(this.localize('goal'))}</small>` : ''}${showWallet ? ` <small class="wal" title="${escParents(this.localize('wallet'))}">· 🛍️ ${fmtParents(kid.wallet)}</small>` : ''}</div>
             </div>
           </div>
           ${kid.goal > 0 ? `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div class="fill" style="width:${pct}%"></div></div>` : ''}
@@ -737,6 +913,10 @@ class TaskOrganizerParents extends HTMLElement {
         </div>`;
       return;
     }
+    if (this._rw) {
+      layer.innerHTML = this._renderRewardsSheet();
+      return;
+    }
     if (this._adhoc) {
       layer.innerHTML = this._renderAdhocSheet();
       this._updateAdhocState();
@@ -797,6 +977,18 @@ class TaskOrganizerParents extends HTMLElement {
       .appr-pts { flex: none; font-size: 18px; font-weight: 800; }
       .appr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       .appr-actions .ok { grid-column: 1 / -1; }
+      .appr-actions.two .ok { grid-column: auto; }
+      .kid-pts .wal { font-weight: 700; color: var(--primary-text-color); }
+      .rw-btn { margin: 12px 0 0; }
+      .rw-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+      .rw-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) 44px; gap: 8px; align-items: center; padding: 10px; border-radius: 12px; border: 1px solid var(--p-line); }
+      .rw-row select, .rw-row input[type=text], .rw-row input[type=number] { min-height: 44px; border-radius: 10px; border: 2px solid var(--p-line); background: var(--primary-background-color, #fafafa); color: var(--primary-text-color); font-size: 16px; font-family: inherit; padding: 0 8px; min-width: 0; }
+      .rw-emoji { font-size: 22px; }
+      .rw-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+      .rw-f { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--p-sub); font-weight: 600; white-space: nowrap; }
+      .rw-f input[type=number] { width: 84px; flex: none; }
+      .rw-f input[type=checkbox] { width: 22px; height: 22px; }
+      .rw-del { min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--p-line); background: transparent; font-size: 18px; }
       .btn { min-height: 48px; padding: 0 8px; border-radius: 12px; font-size: 15px; white-space: nowrap; font-weight: 700; border: 2px solid var(--p-line); background: var(--card-background-color, #fff); color: var(--primary-text-color); }
       .btn.ok { border-color: var(--p-ok); background: var(--p-ok); color: #fff; font-size: 18px; min-height: 52px; }
       .btn.danger { border-color: var(--p-danger); color: var(--p-danger); }
