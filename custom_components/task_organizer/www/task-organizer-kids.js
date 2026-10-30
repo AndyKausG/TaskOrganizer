@@ -295,6 +295,23 @@ class TaskOrganizerKids extends HTMLElement {
     if (this._hass && !this._unsubEvents) this._subscribeToUpdates();
     if (!this._tickTimer) this._tickTimer = setInterval(() => this._tick(), 1000);
     this._observeSize();
+    if (!this._fitHandler) {
+      this._fitHandler = () => this._fitHeight();
+      window.addEventListener('resize', this._fitHandler);
+    }
+    requestAnimationFrame(() => this._fitHeight());
+  }
+
+  /**
+   * Fills exactly the space below the Home Assistant toolbar. A fixed
+   * "100vh - header" guess left a small page scrollbar when the real toolbar
+   * (tabs, safe area, app frame) is higher than the assumed 56 px.
+   */
+  _fitHeight() {
+    const top = this.getBoundingClientRect().top + (window.scrollY || 0);
+    if (!(top >= 0)) return;
+    const h = Math.max(0, Math.floor(window.innerHeight - top));
+    if (h > 0) this.style.setProperty('--to-fit-height', `${h}px`);
   }
 
   /**
@@ -327,6 +344,10 @@ class TaskOrganizerKids extends HTMLElement {
     }
     clearInterval(this._tickTimer);
     this._tickTimer = null;
+    if (this._fitHandler) {
+      window.removeEventListener('resize', this._fitHandler);
+      this._fitHandler = null;
+    }
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -1890,8 +1911,11 @@ class TaskOrganizerKids extends HTMLElement {
   _styles() {
     return `
       :host {
-        display: block; height: 100%;
-        min-height: calc(100vh - var(--header-height, 56px));
+        display: block;
+        /* exactly the space below the HA toolbar (measured in _fitHeight) */
+        height: var(--to-fit-height, 100%);
+        min-height: var(--to-fit-height, calc(100dvh - var(--header-height, 56px)));
+        box-sizing: border-box;
         background: var(--primary-background-color, #f4f4f6);
         color: var(--primary-text-color, #212121);
         font-family: var(--paper-font-body1_-_font-family, Roboto, "Segoe UI", system-ui, -apple-system, sans-serif);
@@ -1909,7 +1933,8 @@ class TaskOrganizerKids extends HTMLElement {
       #app { display: block; height: 100%; min-height: inherit; }
       button { font-family: inherit; color: inherit; cursor: pointer; border: 0; margin: 0; touch-action: manipulation; }
       button:disabled { cursor: default; }
-      .root { min-height: inherit; height: 100%; overflow: hidden; display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 20px; }
+      .root { box-sizing: border-box; min-height: inherit; height: 100%; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 20px; }
+      .root::-webkit-scrollbar { display: none; }
       .empty-state { grid-column: 1 / -1; align-self: center; justify-self: center; text-align: center; font-size: 30px; font-weight: 700; color: var(--k-sub); padding: 32px; }
       .empty-state.small { font-size: 26px; padding: 24px 8px; }
 
@@ -1917,7 +1942,7 @@ class TaskOrganizerKids extends HTMLElement {
       .top { display: flex; align-items: center; justify-content: space-between; min-height: 56px; }
       .title { font-size: 38px; font-weight: 800; letter-spacing: 0.2px; }
       .clock { font-size: 30px; font-weight: 700; color: var(--k-sub); }
-      .tiles { flex: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); grid-auto-rows: minmax(280px, 380px); align-content: start; gap: 20px; }
+      .tiles { flex: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); grid-auto-rows: minmax(240px, 380px); align-content: start; gap: 20px; }
       .tile {
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px;
         background: color-mix(in srgb, var(--kc) 16%, var(--k-card));
