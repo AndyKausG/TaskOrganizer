@@ -263,6 +263,14 @@ A Home Assistant user with a parent role (administrator, manager or parent, see 
 
 Both answer `{"success": false, "error": "not_found"}` for an unknown task (`parent_complete_for` also `unknown_kid`).
 
+### Doing a task together
+On every task a kid can complete (duty or bonus) the kids card offers a second button **👫 Zusammen**. It opens a picker with the avatars of the other kids who are old enough for the task (the assignment does not matter). Every selected helper confirms with the own PIN on the normal PIN pad ("Please confirm that you helped"); a kid without PIN is confirmed by the tap. Then `kid_complete_task` is called with `helpers: [{"kid_id": ..., "pin": ...}]`:
+
+* The backend verifies every helper PIN with the normal lockout of that kid (5 wrong attempts lock it for 60 s). Structural checks (duplicate helper, the main kid as helper, unknown kid, too young) come first and cost no attempt; the first failing helper stops the check, so a request cannot try more PINs than a direct PIN check. Answers: `{"success": false, "error": "wrong_pin" | "locked" | "too_young" | "unknown_kid" | "duplicate_helper", "helper_id": "<kid>"}`.
+* The points of the task are split equally among all participants (rounded to 0.1 per kid, like the shared completion of the classic card). The setting `team_bonus` (0-3 points, default 1, settings card > Kids > Teamwork) adds that many extra points per participant as a separate history entry of type `bonus` with the reason "Teamarbeit" / "Teamwork"; it belongs to the same completion, so ↩️ undo takes it back as well, and it does not count for the family goal. A task done alone never gets a team bonus.
+* Open steps, the time window and the eligibility rules only apply to the main kid (the one who is logged in).
+* If the task needs approval, one pending entry for all participants is created (`helpers` in the pending record and in the `task_organizer_approval_requested` event); approving awards everybody, rejecting as "cheated" penalises only the main kid.
+
 ### Spontaneous bonus
 The **➕ Spontan-Bonus** button of the parents card opens a sheet to create a one-time bonus task in a few taps: name (required, up to 60 characters), icon chip (🛒 🍞 🧺 🧹 📦 🐕 ⭐), estimated minutes (5 / 10 / 15 / 30, suggesting 2 / 3 / 4 / 6 points, editable 1-10), target ("All kids" or one kid) with a minimum age, and an expiry ("No expiry" or "Today until HH:MM"). The admin-only websocket command `task_organizer/add_adhoc_bonus` (`name`, `points`, optional `icon`, `minutes`, `kid_id`, `min_age`, `expires_at` as ISO date/time) creates a task with `interval: 0`, category `bonus`, `adhoc: true` and `expires_at`, and fires `task_organizer_task_created` and [`task_organizer_bonus_opened`](#task_organizer_bonus_opened), so existing tablet announcements work. Errors: `unauthorized`, `invalid_name`, `invalid_icon`, `unknown_person`, `invalid_expiry`. A kid-targeted task uses the normal assignee rule. Expired ad-hoc tasks are removed automatically (checked every minute) without points or history; the kids card hides them as soon as they expire and shows "bis 18:00" on the bonus board.
 
@@ -292,7 +300,7 @@ All of these return `{"success": true, ...}` or `{"success": false, "error": <co
 | :--- | :--- |
 | `task_organizer/kid_verify_pin` | `kid_id`, `pin`. Checks the PIN (a kid without PIN is always accepted). |
 | `task_organizer/kid_claim_task` | `task_id`, `kid_id`, `pin`. Reserves a task for the kid. |
-| `task_organizer/kid_complete_task` | `task_id`, `kid_id`, `pin`. Checks the PIN and the eligibility (task due and not paused, kid assigned, old enough, not claimed by another kid, duties first for bonus tasks with `requires_routine`) and awards the points. |
+| `task_organizer/kid_complete_task` | `task_id`, `kid_id`, `pin`, optional `helpers` (`[{kid_id, pin}]`, see [Doing a task together](#doing-a-task-together)). Checks the PIN and the eligibility (task due and not paused, kid assigned, old enough, not claimed by another kid, duties first for bonus tasks with `requires_routine`) and awards the points. |
 | `task_organizer/set_kid_profile` | **Admin or manager.** `participant_id`, `avatar`, `color` (hex), `birth_year`, optional `pin` (4 digits, empty = keep) and `clear_pin`. |
 | `task_organizer/delete_kid_profile` | **Admin or manager.** `participant_id`. |
 
@@ -403,7 +411,7 @@ By default every parent action needs a Home Assistant administrator. With the **
 Without kid profiles nothing changes: every Home Assistant user may manage tasks, templates, settings and history as before. Note that the button entities (`button.task_organizer_reset_month`, `button.task_organizer_factory_reset`) and the services are not covered by these checks; hide or disable the factory reset button if non-admin users can reach entity controls.
 
 ### Settings of step 2
-`cheat_penalty_factor` (0-2), `cheat_strict_days` (0-30), `birthday_bonus_points` (0-50), `birthday_duty_free`, `expire_missed` and the per-kid spot-check rate are in the settings card (Kids). `update_settings` cannot overwrite kid profiles, pending approvals, history or points.
+`cheat_penalty_factor` (0-2), `cheat_strict_days` (0-30), `birthday_bonus_points` (0-50), `team_bonus` (0-3), `birthday_duty_free`, `expire_missed` and the per-kid spot-check rate are in the settings card (Kids). `update_settings` cannot overwrite kid profiles, pending approvals, history or points.
 
 ### Security notes
 * PINs are stored as salted SHA-256 hashes. The hashes are never sent to the frontend (`task_organizer/get_data` only reports `has_pin`) and never appear in the attributes of `sensor.task_organizer_settings`.

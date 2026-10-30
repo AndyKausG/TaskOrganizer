@@ -65,6 +65,12 @@ const I18N_KIDS = {
     pa_postpone_title: "Postpone \"{task}\"", pa_back_on: "Back on",
     pa_tomorrow: "Tomorrow", pa_day_after: "Day after tomorrow", pa_date: "Pick a date",
     pa_day: "Day", pa_month: "Month", pa_postpone_ok: "Postpone",
+    together: "Together", together_title: "Doing \"{task}\" together", together_ask: "Who is helping?",
+    together_each: "Everyone gets ⭐ {n}{bonus}", together_bonus: " + {b} team bonus", together_next: "Next",
+    helper_pin_ask: "Please confirm that you helped", helper_none: "Nobody else can help with this one.",
+    err_duplicate_helper: "Every helper can only be picked once.",
+    err_helper_wrong_pin: "{name}: that number is not right.", err_helper_locked: "{name}: too many tries. Please wait {s} seconds.",
+    err_helper_too_young: "{name} is too young for this task.", err_helper_unknown_kid: "{name} is not set up yet.",
     pa_skipped: "Skipped for today", pa_postponed: "Postponed", pa_completed: "Done for {name}: +{n}", pa_undone: "Undone",
     replaced_today: "Today: {a} instead of {b}"
   },
@@ -114,6 +120,12 @@ const I18N_KIDS = {
     pa_postpone_title: "\"{task}\" zurückstellen", pa_back_on: "Wieder da ab",
     pa_tomorrow: "Morgen", pa_day_after: "Übermorgen", pa_date: "Datum wählen",
     pa_day: "Tag", pa_month: "Monat", pa_postpone_ok: "Zurückstellen",
+    together: "Zusammen", together_title: "\"{task}\" zusammen machen", together_ask: "Wer hilft mit?",
+    together_each: "Alle bekommen ⭐ {n}{bonus}", together_bonus: " + {b} Team-Bonus", together_next: "Weiter",
+    helper_pin_ask: "Bestätige bitte, dass du geholfen hast", helper_none: "Hier kann gerade niemand mithelfen.",
+    err_duplicate_helper: "Jeder Helfer kann nur einmal ausgewählt werden.",
+    err_helper_wrong_pin: "{name}: Die Geheimzahl stimmt nicht.", err_helper_locked: "{name}: Zu viele Versuche. Bitte warte {s} Sekunden.",
+    err_helper_too_young: "{name} ist für diese Aufgabe noch zu jung.", err_helper_unknown_kid: "{name} ist noch nicht eingerichtet.",
     pa_skipped: "Für heute ausgesetzt", pa_postponed: "Zurückgestellt", pa_completed: "Für {name} erledigt: +{n}", pa_undone: "Rückgängig gemacht",
     replaced_today: "Heute: {a} statt {b}"
   }
@@ -516,7 +528,7 @@ class TaskOrganizerKids extends HTMLElement {
 
   /** Pending (waiting for approval) completions of a kid, oldest first. */
   _pendingFor(kidId) {
-    return Object.values(this.pending || {}).filter(p => p.kid_id === kidId)
+    return Object.values(this.pending || {}).filter(p => p.kid_id === kidId || (Array.isArray(p.helpers) && p.helpers.includes(kidId)))
       .sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
   }
 
@@ -713,7 +725,7 @@ class TaskOrganizerKids extends HTMLElement {
       this._minuteKey = minuteKey;
       if (this._fetched && !this._busy && !this._celebrating) this._render();
     }
-    if (this._view === 'pin' && this._lockUntil) {
+    if ((this._view === 'pin' || this._helperMode()) && this._lockUntil) {
       if (Date.now() >= this._lockUntil) {
         this._lockUntil = 0;
         this._pinMessage = '';
@@ -740,6 +752,7 @@ class TaskOrganizerKids extends HTMLElement {
     if (action === 'open-kid') this._openKid(el.dataset.kid);
     else if (action === 'pin-digit') this._pinPress(el.dataset.digit);
     else if (action === 'pin-delete') this._pinDelete();
+    else if (action === 'pin-cancel' && this._helperMode()) this._helperCancel();
     else if (action === 'pin-cancel' || action === 'back') this._goHome();
     else if (action === 'toggle-sub') this._toggleSubtask(el.dataset.task, parseInt(el.dataset.idx));
     else if (action === 'claim') this._claim(el.dataset.task);
@@ -750,6 +763,9 @@ class TaskOrganizerKids extends HTMLElement {
     else if (action === 'pa-undo') this._openConfirm('undo', null, el.dataset.id);
     else if (action === 'pa-postpone') this._openPostpone(el.dataset.task);
     else if (action === 'pp-choice') { this._sheet.choice = el.dataset.choice; this._render(); }
+    else if (action === 'together') this._openTogether(el.dataset.task);
+    else if (action === 'tg-toggle') this._toggleHelper(el.dataset.kid);
+    else if (action === 'tg-next') this._togetherNext();
     else if (action === 'sheet-cancel') { this._sheet = null; this._render(); }
     else if (action === 'sheet-ok') this._sheetOk();
   }
@@ -923,6 +939,149 @@ class TaskOrganizerKids extends HTMLElement {
     return `<div class="overlay" role="dialog" aria-modal="true"><div class="sheet" style="--kc:${kid ? kid.color : '#4CAF50'}">${body}</div></div>`;
   }
 
+  // ---------------------------------------------------------------------------
+  // Doing a task together: pick the helpers, each one confirms with the own PIN
+  // ---------------------------------------------------------------------------
+
+  /** Other kids who may help with a task (old enough; the assignment does not matter). */
+  _helperCandidates(task, kid) {
+    return this._kids().filter(k => k.id !== kid.id && this._oldEnough(task, k));
+  }
+
+  _helperMode() {
+    return !!(this._sheet && this._sheet.type === 'together' && this._sheet.step === 'pin');
+  }
+
+  _openTogether(taskId) {
+    const task = this.tasks[taskId];
+    if (!task || this._busy) return;
+    this._sheet = { type: 'together', taskId, name: task.name, step: 'pick', selected: [], pins: {} };
+    this._render();
+  }
+
+  _toggleHelper(kidId) {
+    const sheet = this._sheet;
+    if (!sheet || sheet.type !== 'together') return;
+    const i = sheet.selected.indexOf(kidId);
+    if (i >= 0) sheet.selected.splice(i, 1); else sheet.selected.push(kidId);
+    delete sheet.pins[kidId];
+    this._render();
+  }
+
+  /** Next helper that still has to confirm with a PIN (kids without PIN need only the tap). */
+  _nextHelperPin() {
+    const sheet = this._sheet;
+    const kids = this._kids();
+    return sheet.selected.find(id => !(id in sheet.pins) && (kids.find(k => k.id === id) || {}).has_pin) || null;
+  }
+
+  _togetherNext() {
+    const sheet = this._sheet;
+    if (!sheet || !sheet.selected.length) return;
+    this._advanceTogether();
+  }
+
+  _advanceTogether() {
+    const next = this._nextHelperPin();
+    if (!next) {
+      this._completeTogether();
+      return;
+    }
+    this._sheet.step = 'pin';
+    this._pendingKid = next;
+    this._pin = '';
+    this._pinMessage = '';
+    this._lockUntil = 0;
+    this._render();
+  }
+
+  _helperVerified(kidId, pin) {
+    this._sheet.pins[kidId] = pin;
+    this._pendingKid = null;
+    this._pin = '';
+    this._pinMessage = '';
+    this._sheet.step = 'pick';
+    this._advanceTogether();
+  }
+
+  _helperCancel() {
+    this._sheet.step = 'pick';
+    this._pendingKid = null;
+    this._pin = '';
+    this._pinMessage = '';
+    this._render();
+  }
+
+  async _completeTogether() {
+    const sheet = this._sheet;
+    if (this._busy || !this._session) return;
+    this._busy = true;
+    sheet.step = 'pick';
+    this._render();
+    const kids = this._kids();
+    const kid = kids.find(k => k.id === this._session.kidId);
+    const helpers = sheet.selected.map(id => (sheet.pins[id] ? { kid_id: id, pin: sheet.pins[id] } : { kid_id: id }));
+    try {
+      const payload = { type: 'task_organizer/kid_complete_task', task_id: sheet.taskId, kid_id: this._session.kidId, helpers };
+      if (this._session.pin) payload.pin = this._session.pin;
+      const res = await this._hass.callWS(payload);
+      if (res.success) {
+        const names = [kid].concat(sheet.selected.map(id => kids.find(k => k.id === id))).filter(Boolean).map(k => k.name);
+        this._busy = false;
+        this._sheet = null;
+        this._celebrate((parseFloat(res.points) || 0) + (parseFloat(res.team_bonus) || 0), names.join(' & '), !!res.pending);
+        this._fetchData();
+        return;
+      }
+      if (res.helper_id) {
+        // A problem with one helper: stay in the sheet, that helper has to confirm again
+        const helper = kids.find(k => k.id === res.helper_id);
+        delete sheet.pins[res.helper_id];
+        this._showToast(this._helperErrorText(res, helper ? helper.name : ''));
+      } else {
+        this._sheet = null;
+        this._handleActionError(res);
+      }
+    } catch (err) {
+      console.error("TaskOrganizer Kids: could not complete task together", err);
+      this._showToast(this.localize('err_generic'));
+    }
+    this._busy = false;
+    this._render();
+  }
+
+  _helperErrorText(res, name) {
+    const key = `err_helper_${res.error}`;
+    const text = this.localize(key, { name, s: res.locked_seconds || 60 });
+    return text === key ? this._errorText(res) : text;
+  }
+
+  _renderTogether() {
+    const sheet = this._sheet;
+    const task = this.tasks[sheet.taskId];
+    const kid = this._kids().find(k => this._session && k.id === this._session.kidId);
+    if (!task || !kid) return '';
+    const candidates = this._helperCandidates(task, kid);
+    const chips = candidates.map(k => {
+      const on = sheet.selected.includes(k.id);
+      return `<button class="hchip ${on ? 'on' : ''}" style="--kc:${k.color}" data-action="tg-toggle" data-kid="${escKids(k.id)}" aria-pressed="${on}">
+        <span class="havatar">${escKids(k.avatar)}</span><span class="hname">${escKids(k.name)}</span>${on ? '<span class="hcheck">✓</span>' : ''}</button>`;
+    }).join('');
+    const n = sheet.selected.length + 1;
+    const bonus = this.settings.team_bonus === undefined ? 1 : parseInt(this.settings.team_bonus) || 0;
+    const share = Math.round((parseFloat(task.complexity) || 0) / n * 10) / 10;
+    const hint = sheet.selected.length
+      ? this.localize('together_each', { n: fmtKids(share), bonus: bonus > 0 ? this.localize('together_bonus', { b: bonus }) : '' }) : '';
+    return `<div class="overlay" role="dialog" aria-modal="true"><div class="sheet" style="--kc:${kid.color}">
+      <div class="sheet-title">👫 ${escKids(this.localize('together_title', { task: task.name }))}</div>
+      <div class="sheet-hint ask">${escKids(this.localize('together_ask'))}</div>
+      <div class="hchips">${chips || escKids(this.localize('helper_none'))}</div>
+      <div class="sheet-hint">${escKids(hint)}</div>
+      <div class="sheet-btns"><button class="sbtn" data-action="sheet-cancel">${escKids(this.localize('pa_cancel'))}</button>
+        <button class="sbtn ok" data-action="tg-next" ${sheet.selected.length && !this._busy ? '' : 'disabled'}>${escKids(this.localize('together_next'))}</button></div>
+    </div></div>`;
+  }
+
   _openKid(kidId) {
     const kid = this._kids().find(k => k.id === kidId);
     if (!kid) return;
@@ -1008,7 +1167,8 @@ class TaskOrganizerKids extends HTMLElement {
       const res = await this._hass.callWS({ type: 'task_organizer/kid_verify_pin', kid_id: kidId, pin });
       this._busy = false;
       if (res.success) {
-        this._enterKid(kidId, pin);
+        if (this._helperMode()) this._helperVerified(kidId, pin);
+        else this._enterKid(kidId, pin);
         return;
       }
       this._pin = '';
@@ -1523,7 +1683,7 @@ class TaskOrganizerKids extends HTMLElement {
           <div class="pin-left">
             <div class="pin-avatar">${escKids(kid.avatar)}</div>
             <div class="pin-hello">${escKids(this.localize('hello', { name: kid.name }))}</div>
-            <div class="pin-ask">${escKids(this.localize('enter_pin'))}</div>
+            <div class="pin-ask">${escKids(this.localize(this._helperMode() ? 'helper_pin_ask' : 'enter_pin'))}</div>
             <div class="dots">${dots}</div>
             <div class="pin-msg" id="pin-msg" role="alert">${escKids(this._pinMessage)}</div>
           </div>
@@ -1582,7 +1742,7 @@ class TaskOrganizerKids extends HTMLElement {
             <div class="col-scroll">${bonusHtml}</div>
           </section>
         </div>
-        ${this._renderSheet()}
+        ${this._helperMode() ? this._renderPin() : (this._sheet && this._sheet.type === 'together' ? this._renderTogether() : this._renderSheet())}
       </div>`;
   }
 
@@ -1687,6 +1847,9 @@ class TaskOrganizerKids extends HTMLElement {
       // "Fertig!" only once every required step is ticked (optional steps never block)
       const open = (Array.isArray(task.subtasks) ? task.subtasks : []).filter(st => st && !st.done && !st.optional).length;
       action = `<button class="btn btn-done" data-action="complete" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>${escKids(this.localize('done_btn'))} ✅</button>`;
+      if (this._helperCandidates(task, kid).length) {
+        action += `<button class="btn btn-together" data-action="together" data-task="${escKids(task.id)}" ${busy} ${open ? 'disabled' : ''}>👫 ${escKids(this.localize('together'))}</button>`;
+      }
       if (open) note = `<div class="t-note">${escKids(this.localize('steps_left', { n: open }))}</div>`;
     }
 
@@ -1866,6 +2029,15 @@ class TaskOrganizerKids extends HTMLElement {
       .sdate { display: flex; gap: 14px; }
       .sdate label { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 20px; font-weight: 700; color: var(--k-sub); }
       .sdate select { min-height: 64px; font-size: 26px; font-family: inherit; padding: 0 10px; border-radius: 18px; border: 3px solid var(--k-line); background: var(--k-card); color: var(--k-text); }
+      .t-action { flex-direction: column; gap: 8px; align-items: stretch; }
+      .btn-together { min-height: 56px; font-size: 22px; background: var(--k-blue); }
+      .hchips { display: flex; flex-wrap: wrap; gap: 12px; }
+      .hchip { position: relative; min-width: 120px; padding: 12px 16px 8px; border-radius: 26px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--k-card); border: 4px solid var(--k-line); }
+      .hchip.on { border-color: var(--kc); background: color-mix(in srgb, var(--kc) 22%, var(--k-card)); }
+      .havatar { font-size: 52px; line-height: 1; }
+      .hname { font-size: 22px; font-weight: 800; }
+      .hcheck { position: absolute; top: -8px; right: -8px; width: 34px; height: 34px; border-radius: 50%; background: var(--k-good); color: #fff; display: grid; place-items: center; font-size: 22px; font-weight: 900; }
+      .sheet-hint.ask { color: var(--k-text); }
       .sheet-btns { display: flex; gap: 14px; justify-content: flex-end; }
       .sbtn { min-height: 68px; min-width: 150px; padding: 0 26px; border-radius: 34px; font-size: 26px; font-weight: 800; background: color-mix(in srgb, var(--k-sub) 18%, var(--k-card)); border: 3px solid var(--k-line); }
       .sbtn.ok { background: var(--k-good); border-color: var(--k-good); color: #fff; }
@@ -2031,6 +2203,13 @@ class TaskOrganizerKids extends HTMLElement {
       :host([narrow]) .pin-msg { min-height: 40px; font-size: 16px; }
       :host([narrow]) .pad { grid-template-columns: repeat(3, 68px); gap: 10px; }
       :host([narrow]) .key { width: 68px; height: 68px; font-size: 32px; border-radius: 20px; }
+      :host([narrow]) .t-action { flex-direction: column; gap: 6px; }
+      :host([narrow]) .t-action .btn-together { min-height: 44px; font-size: 18px; }
+      :host([narrow]) .hchips { gap: 8px; }
+      :host([narrow]) .hchip { min-width: 84px; padding: 8px 10px 6px; border-radius: 18px; border-width: 3px; }
+      :host([narrow]) .havatar { font-size: 36px; }
+      :host([narrow]) .hname { font-size: 16px; }
+      :host([narrow]) .hcheck { width: 26px; height: 26px; font-size: 17px; top: -6px; right: -6px; }
       :host([narrow]) .pact { order: 4; grid-column: 1 / -1; gap: 8px; padding-top: 8px; border-top-width: 2px; }
       :host([narrow]) .pbtn { width: 48px; height: 48px; font-size: 22px; border-width: 2px; }
       :host([narrow]) .done-today { padding: 8px 10px; border-radius: 18px; border-width: 2px; }

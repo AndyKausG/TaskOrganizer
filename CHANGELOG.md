@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.8.0]
+## [1.8.0] - unreleased
 ### 🚀 New Features
 - **Kids mode:** New card `task-organizer-kids` for a wall/kiosk tablet (designed for 1280x800 landscape): one big tile per kid with a progress ring, PIN pad, personal task and bonus view, "family rocket" (cooperative family goal), bonus board, confetti, WebAudio sounds and auto-return to the home screen after inactivity. See the new "Kids mode" section in the README and `examples/kids/dashboard.yaml`.
 - **Kids without Home Assistant user:** The participant ID is the `user_id` of a person or, if there is none, the person entity id (`person.xyz`). All cards, the leaderboard/reset events and the sensors resolve names accordingly. Existing data keyed by user id keeps working.
@@ -37,6 +37,7 @@
 - **Missed duties expire:** with `expire_missed` (default on) kid duties that are still due from a previous day move on at midnight (daily at once, weekly after 2 days) without points or deduction; each leaves a history entry of type `missed`, visible only in the parents and protocol cards.
 - **Parents role:** non-admin Home Assistant users can be parents (`parents`) or parents who may also manage (`parents_manage`), configured by an administrator in the settings card (Kids > Parents, admin-only command `set_parents`). Parents may approve, reject, give or deduct points, undo and create spontaneous bonuses; managers additionally kid profiles, wizard and bonus triggers. `get_data` returns `my_role` and `ha_users`; parents card, protocol undo and settings card follow the role. See "Parents role" in the README.
 - **Parent actions on the kids card:** users with a parent role see an icon row on every task of the kid view: ⏭️ skip today (next occurrence without points, history type `skipped`, not counted as missed), ⏸️ postpone (tomorrow, the day after, or a date via day/month selects - no native date inputs) and ✅ complete for the kid (100 %, ignores PIN, window and steps), plus ↩️ undo for today's completions of the kid. New websocket commands `parent_task_action` and `parent_complete_for` (admin / manager / parent). The tablet user without a role sees no change.
+- **Do it together:** a secondary button "👫 Zusammen" on completable tasks of the kids card opens a picker with the other kids who are old enough; every helper confirms with the own PIN (a kid without PIN with a tap). `kid_complete_task` takes the optional `helpers` (`[{kid_id, pin}]`): all helper PINs are verified with the normal lockout (`wrong_pin` / `locked` with `helper_id`; duplicate, unknown or too young helpers are rejected without an attempt), the points are split equally and the new setting `team_bonus` (0-3, default 1, settings card) adds extra points per participant as a `bonus` history entry "Teamarbeit" / "Teamwork" that is undone with the completion. Tasks that need approval create one pending entry for all participants.
 
 ### 🔧 Changes
 - The wizard option "Replace earlier wizard tasks" now updates tasks in place instead of deleting and recreating them.

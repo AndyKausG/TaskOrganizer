@@ -625,7 +625,7 @@ class TaskOrganizerParents extends HTMLElement {
             ${this._avatar(kid)}
             <div class="appr-main">
               <div class="appr-task">${escParents(p.task_name)}</div>
-              <div class="appr-meta">${escParents(kid.name)} · ${escParents(this._ago(p.timestamp))}</div>
+              <div class="appr-meta">${escParents([kid.name].concat((p.helpers || []).map(h => this._kid(h).name)).join(' & '))} · ${escParents(this._ago(p.timestamp))}</div>
             </div>
             <div class="appr-pts">⭐ ${fmtParents(p.points)}</div>
           </div>

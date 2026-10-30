@@ -56,6 +56,7 @@ const I18N_SETTINGS = {
     approval_title: "Approval & consequences",
     cheat_penalty_factor: "Deduction when cheating (x task points)", cheat_strict_days: "Strict mode after cheating (days, 0 = off)",
     birthday_title: "Birthday", birthday_bonus_points: "Birthday bonus (points, 0 = off)",
+    team_title: "Teamwork", team_bonus: "Team bonus per kid when doing a task together (points, 0 = off)",
     birthday_duty_free: "Duty-free birthday: skip the kid's own due tasks",
     family_goal: "Family goal", family_goal_points: "Points per month (all kids together)", family_goal_reward: "Reward", family_goal_reward_ph: "e.g. Ice cream trip",
 claim_minutes: "Bonus reservation (minutes)",
@@ -121,6 +122,7 @@ claim_minutes: "Bonus reservation (minutes)",
     approval_title: "Freigabe & Konsequenzen",
     cheat_penalty_factor: "Abzug bei Schummeln (x Aufgabenpunkte)", cheat_strict_days: "Strenge Phase nach Schummeln (Tage, 0 = aus)",
     birthday_title: "Geburtstag", birthday_bonus_points: "Geburtstags-Bonus (Punkte, 0 = aus)",
+    team_title: "Teamarbeit", team_bonus: "Team-Bonus pro Kind bei gemeinsam erledigten Aufgaben (Punkte, 0 = aus)",
     birthday_duty_free: "Pflichtfreier Geburtstag: eigene fällige Aufgaben überspringen",
     family_goal: "Familienziel", family_goal_points: "Punkte pro Monat (alle Kinder zusammen)", family_goal_reward: "Belohnung", family_goal_reward_ph: "z.B. Eis essen gehen",
 claim_minutes: "Bonus-Reservierung (Minuten)",
@@ -614,6 +616,7 @@ class TaskOrganizerSettings extends HTMLElement {
       newSettings.cheat_penalty_factor = num('cheat-factor', 0, 2, 1);
       newSettings.cheat_strict_days = Math.round(num('cheat-days', 0, 30, 7));
       newSettings.birthday_bonus_points = Math.round(num('bday-bonus', 0, 50, 10));
+      newSettings.team_bonus = Math.round(num('team-bonus', 0, 3, 1));
       newSettings.birthday_duty_free = !!this.shadowRoot.getElementById('bday-free')?.checked;
       newSettings.expire_missed = !!this.shadowRoot.getElementById('expire-missed')?.checked;
     }
@@ -1279,6 +1282,14 @@ class TaskOrganizerSettings extends HTMLElement {
               </div>
             </div>
             <div class="family-box">
+              <h4>👫 ${this.localize('team_title')}</h4>
+              <div class="kid-fields">
+                <label class="kid-field">${this.localize('team_bonus')}
+                  <input type="number" id="team-bonus" min="0" max="3" step="1" value="${esc(fd.team_bonus !== undefined ? fd.team_bonus : (this.settings.team_bonus !== undefined ? this.settings.team_bonus : 1))}">
+                </label>
+              </div>
+            </div>
+            <div class="family-box">
               <h4>🎂 ${this.localize('birthday_title')}</h4>
               <div class="kid-fields">
                 <label class="kid-field">${this.localize('birthday_bonus_points')}
@@ -1568,6 +1579,7 @@ class TaskOrganizerSettings extends HTMLElement {
     fam('cheat-factor', 'cheat_factor');
     fam('cheat-days', 'cheat_days');
     fam('bday-bonus', 'bday_bonus');
+    fam('team-bonus', 'team_bonus');
     const bdayFree = root.getElementById('bday-free');
     if (bdayFree) bdayFree.addEventListener('change', (ev) => { this._familyDraft.bday_free = !!ev.target.checked; });
     const expire = root.getElementById('expire-missed');
