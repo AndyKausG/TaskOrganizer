@@ -156,6 +156,17 @@ def migrate_task_like(item: dict) -> None:
     item["requires_routine"] = bool(item.get("requires_routine", False))
     item["available_from"] = normalize_time(item.get("available_from"))
     item["available_until"] = normalize_time(item.get("available_until"))
+    item["reminder_at"] = normalize_time(item.get("reminder_at"))
+    item["reminder_target"] = normalize_reminder_target(item.get("reminder_target"))
+
+
+_NOTIFY_RE = re.compile(r"^(?:notify\.)?([a-z0-9_]{1,64})$")
+
+
+def normalize_reminder_target(value: Any) -> str:
+    """``notify.<service>`` for a valid notify service name, else ``""`` (only the event)."""
+    match = _NOTIFY_RE.match(value.strip()) if isinstance(value, str) else None
+    return f"notify.{match.group(1)}" if match else ""
 
 
 # ---------------------------------------------------------------------------
