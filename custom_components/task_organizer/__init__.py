@@ -71,6 +71,7 @@ from .const import (
     WS_TYPE_ADJUST_POINTS,
     WS_TYPE_UNDO_COMPLETION,
     WS_TYPE_ADD_ADHOC_BONUS,
+    WS_TYPE_SET_PARENTS,
     SERVICE_ADJUST_POINTS,
     SERVICE_ADD_TASK,
     SERVICE_COMPLETE_TASK_BY_NAME,
@@ -213,6 +214,63 @@ def _fire_leaderboard_event_if_changed(hass: HomeAssistant, old_points: dict, ne
         })
 
 
+# ---------------------------------------------------------------------------
+# Roles (kids mode): admin / manager / parent
+# ---------------------------------------------------------------------------
+
+ROLE_ADMIN = "admin"
+ROLE_MANAGER = "manager"
+ROLE_PARENT = "parent"
+# Everyday parent actions (approvals, points, undo, spontaneous bonus)
+_DAILY_ROLES = (ROLE_ADMIN, ROLE_MANAGER, ROLE_PARENT)
+# Managing the kids setup (profiles, wizard, bonus triggers)
+_MANAGE_ROLES = (ROLE_ADMIN, ROLE_MANAGER)
+
+
+def _role(hass: HomeAssistant, user) -> str | None:
+    """Role of a Home Assistant user: ``admin`` | ``manager`` | ``parent`` | ``None``.
+
+    Admins are the Home Assistant administrators. Managers and parents are
+    configured by an admin (settings ``parents_manage`` / ``parents``); a
+    manager is always also a parent. System and inactive users never get a role
+    from the settings.
+    """
+    if user is None:
+        return None
+    if getattr(user, "is_admin", False):
+        return ROLE_ADMIN
+    if getattr(user, "system_generated", False) or not getattr(user, "is_active", True):
+        return None
+    entries = hass.config_entries.async_entries(DOMAIN)
+    options = entries[0].options if entries else {}
+    if user.id in (options.get("parents_manage") or []):
+        return ROLE_MANAGER
+    if user.id in (options.get("parents") or []):
+        return ROLE_PARENT
+    return None
+
+
+def _check_role(hass: HomeAssistant, connection, msg: dict, allowed: tuple) -> bool:
+    """True if the calling user has one of ``allowed``; otherwise answers ``unauthorized``."""
+    if _role(hass, connection.user) in allowed:
+        return True
+    connection.send_error(msg["id"], "unauthorized", "Permission required")
+    return False
+
+
+def _parent_candidates(hass: HomeAssistant, options: dict) -> list[dict]:
+    """Home Assistant users that can be made parents: ``[{user_id, name}]``.
+
+    Names come from the person entities that have a user.
+    """
+    result: dict[str, str] = {}
+    for state in hass.states.async_all("person"):
+        uid = state.attributes.get("user_id")
+        if uid:
+            result[uid] = state.attributes.get("friendly_name") or state.entity_id
+    return [{"user_id": uid, "name": name} for uid, name in sorted(result.items(), key=lambda kv: kv[1].lower())]
+
+
 @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_GET_DATA})
 @websocket_api.async_response
 async def ws_get_data(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
@@ -235,6 +293,8 @@ async def ws_get_data(hass: HomeAssistant, connection: websocket_api.ActiveConne
     response_data.setdefault("pending", {})
     response_data.setdefault("birthday_levelup", {})
     response_data["family_points"] = _family_points(hass)
+    response_data["my_role"] = _role(hass, connection.user)
+    response_data["ha_users"] = _parent_candidates(hass, entry.options)
     
     connection.send_result(msg["id"], response_data)
 
@@ -593,6 +653,8 @@ async def ws_factory_reset(hass: HomeAssistant, connection: websocket_api.Active
 _PROTECTED_SETTING_KEYS = (
     "pending", "history", "points", "tasks", "templates",
     "birthday_handled", "birthday_levelup", "monthly_history",
+    # Roles are only changed through the admin-only set_parents command
+    "parents", "parents_manage",
 )
 
 
@@ -711,9 +773,9 @@ async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveC
     
     if "settings" in msg:
         incoming_settings = dict(msg["settings"])
-        # Kids profiles are merged separately (admin only, never takes hashes)
+        # Kids profiles are merged separately (admin / manager only, never takes hashes)
         incoming_kids = incoming_settings.pop("kids", None)
-        if not connection.user.is_admin:
+        if _role(hass, connection.user) not in _MANAGE_ROLES:
             incoming_settings.pop("bonus_triggers", None)
             incoming_settings.pop("wizard", None)
         for key in _PROTECTED_SETTING_KEYS:
@@ -725,7 +787,7 @@ async def ws_import_tasks(hass: HomeAssistant, connection: websocket_api.ActiveC
             entry = entries[0]
             new_options = dict(entry.options)
             new_options.update(incoming_settings)
-            if incoming_kids is not None and connection.user.is_admin:
+            if incoming_kids is not None and _role(hass, connection.user) in _MANAGE_ROLES:
                 new_options["kids"] = merge_imported_kids(entry.options.get("kids"), incoming_kids)
             hass.config_entries.async_update_entry(entry, options=new_options)
 
@@ -920,9 +982,8 @@ def _update_kids(hass: HomeAssistant, kids: dict) -> None:
 })
 @websocket_api.async_response
 async def ws_set_kid_profile(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Create/update a kid profile (admin only). An empty pin keeps the old one."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Create/update a kid profile (admin / manager). An empty pin keeps the old one."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
 
     pid = msg["participant_id"]
@@ -977,9 +1038,8 @@ async def ws_set_kid_profile(hass: HomeAssistant, connection: websocket_api.Acti
 })
 @websocket_api.async_response
 async def ws_delete_kid_profile(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Remove a kid profile (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Remove a kid profile (admin / manager)."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
 
     pid = msg["participant_id"]
@@ -1238,9 +1298,8 @@ async def _async_reject_pending(
 })
 @websocket_api.async_response
 async def ws_approve(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Approve a pending completion and award its points (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Approve a pending completion and award its points (admin / manager / parent)."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
         return
     pending = await _async_approve_pending(hass, msg["pending_id"])
     if pending is None:
@@ -1257,9 +1316,8 @@ async def ws_approve(hass: HomeAssistant, connection: websocket_api.ActiveConnec
 })
 @websocket_api.async_response
 async def ws_reject(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Reject a pending completion: ``not_done`` or ``cheated`` (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Reject a pending completion: ``not_done`` or ``cheated`` (admin / manager / parent)."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
         return
     pending = await _async_reject_pending(hass, msg["pending_id"], msg["mode"], msg.get("reason"))
     if pending is None:
@@ -1294,9 +1352,8 @@ async def _async_adjust_points(hass: HomeAssistant, kid_id: str, points: int, re
 })
 @websocket_api.async_response
 async def ws_adjust_points(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Give a bonus or a penalty with a reason (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Give a bonus or a penalty with a reason (admin / manager / parent)."""
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
         return
     reason = _clean_reason(msg["reason"])
     if not reason:
@@ -1317,7 +1374,7 @@ async def ws_adjust_points(hass: HomeAssistant, connection: websocket_api.Active
 
 
 # ---------------------------------------------------------------------------
-# Undo a completion (admin only)
+# Undo a completion (admin / manager / parent)
 # ---------------------------------------------------------------------------
 
 def _restore_task_after_undo(data: dict, task_id: str, source: dict | None) -> None:
@@ -1358,14 +1415,13 @@ def _restore_task_after_undo(data: dict, task_id: str, source: dict | None) -> N
 })
 @websocket_api.async_response
 async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Undo a task completion (admin only).
+    """Undo a task completion (admin / manager / parent).
 
     Removes all history entries of that completion, takes their points back
     (never below 0) and makes the task open again without any penalty. A
     second undo of the same entry answers ``not_found``.
     """
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
         return
     data = hass.data[DOMAIN]["data"]
     history = data["history"]
@@ -1408,7 +1464,7 @@ async def ws_undo_completion(hass: HomeAssistant, connection: websocket_api.Acti
 
 
 # ---------------------------------------------------------------------------
-# Ad-hoc bonus (admin only)
+# Ad-hoc bonus (admin / manager / parent)
 # ---------------------------------------------------------------------------
 
 MAX_ADHOC_NAME_LENGTH = 60
@@ -1427,12 +1483,11 @@ _ICON_RE = re.compile(r"^mdi:[a-z0-9-]{1,60}$")
 })
 @websocket_api.async_response
 async def ws_add_adhoc_bonus(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Create a spontaneous one-time bonus task (admin only).
+    """Create a spontaneous one-time bonus task (admin / manager / parent).
 
     Open to all kids or targeted at one kid; optionally expires on its own.
     """
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    if not _check_role(hass, connection, msg, _DAILY_ROLES):
         return
     name = msg["name"].strip()
     if not name or len(name) > MAX_ADHOC_NAME_LENGTH:
@@ -1778,9 +1833,8 @@ def _wizard_proposal(ctx: dict, excluded: set | None = None) -> dict:
 @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_WIZARD_CATALOG})
 @websocket_api.async_response
 async def ws_wizard_catalog(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Return the task catalog and the household features (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Return the task catalog and the household features (admin / manager)."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
     result = kids_catalog.catalog_for_client()
     result["today"] = dt_util.now().date().isoformat()
@@ -1800,8 +1854,7 @@ async def ws_wizard_catalog(hass: HomeAssistant, connection: websocket_api.Activ
 @websocket_api.async_response
 async def ws_wizard_preview(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
     """Compute the proposal (tasks per kid, rotation, load, goals) without saving."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
     try:
         ctx = _wizard_context(hass, msg)
@@ -1929,13 +1982,12 @@ def _wizard_task_ids_to_replace(tasks: dict, kid_ids: set, proposal: dict) -> li
 })
 @websocket_api.async_response
 async def ws_wizard_apply(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Create the whole kids setup in one go (admin only).
+    """Create the whole kids setup in one go (admin / manager).
 
     Everything is validated first; after that tasks, templates, kid profiles,
     goals and triggers are written without any await in between and saved once.
     """
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
     try:
         ctx = _wizard_context(hass, msg)
@@ -2235,9 +2287,8 @@ def async_setup_bonus_triggers(hass: HomeAssistant) -> None:
 })
 @websocket_api.async_response
 async def ws_set_bonus_triggers(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
-    """Replace the list of bonus triggers (admin only)."""
-    if not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Admin permission required")
+    """Replace the list of bonus triggers (admin / manager)."""
+    if not _check_role(hass, connection, msg, _MANAGE_ROLES):
         return
     for trig in msg["triggers"]:
         if not (trig.get("task_id") or trig.get("wizard_key")):
@@ -2248,6 +2299,35 @@ async def ws_set_bonus_triggers(hass: HomeAssistant, connection: websocket_api.A
     options["bonus_triggers"] = [dict(t) for t in msg["triggers"]]
     hass.config_entries.async_update_entry(entry, options=options)
     connection.send_result(msg["id"], {"success": True})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): WS_TYPE_SET_PARENTS,
+    vol.Required("parents"): [str],
+    vol.Required("parents_manage"): [str],
+})
+@websocket_api.async_response
+async def ws_set_parents(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict):
+    """Set the parents and the parents who may also manage (HA administrators only).
+
+    A manager is always also a parent. Unknown, inactive and system-generated
+    users are rejected (``invalid_user``).
+    """
+    if not _check_role(hass, connection, msg, (ROLE_ADMIN,)):
+        return
+    manage = list(dict.fromkeys(msg["parents_manage"]))
+    parents = list(dict.fromkeys(msg["parents"] + manage))
+    for uid in parents:
+        user = await hass.auth.async_get_user(uid)
+        if user is None or user.system_generated or not user.is_active:
+            connection.send_error(msg["id"], "invalid_user", "Unknown, inactive or system user")
+            return
+    entry = _get_entry(hass)
+    options = dict(entry.options)
+    options["parents"] = parents
+    options["parents_manage"] = manage
+    hass.config_entries.async_update_entry(entry, options=options)
+    connection.send_result(msg["id"], {"success": True, "parents": parents, "parents_manage": manage})
 
 
 def _migrate_replaced_by(item: dict) -> None:
@@ -2957,6 +3037,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     websocket_api.async_register_command(hass, ws_adjust_points)
     websocket_api.async_register_command(hass, ws_undo_completion)
     websocket_api.async_register_command(hass, ws_add_adhoc_bonus)
+    websocket_api.async_register_command(hass, ws_set_parents)
     
     # Register static path for frontend cards
     frontend_path = hass.config.path(f"custom_components/{DOMAIN}/www")

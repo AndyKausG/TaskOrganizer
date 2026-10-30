@@ -22,6 +22,6 @@ except ImportError:  # pragma: no cover - plain environment
 
 def pytest_ignore_collect(collection_path, config):
     """Skip the HA based tests when the harness is not installed."""
-    if not HAS_HA and collection_path.name in ("test_kids_ws.py", "test_wizard_ws.py", "test_kids_step2_ws.py"):
+    if not HAS_HA and collection_path.name in ("test_kids_ws.py", "test_wizard_ws.py", "test_kids_step2_ws.py", "test_parents_role.py"):
         return True
     return None
