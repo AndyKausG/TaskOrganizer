@@ -2432,6 +2432,15 @@ class TaskOrganizerKids extends HTMLElement {
       .goalbar.ready .goal-fill { background: var(--k-good); }
       .goal-text { font-size: 19px; font-weight: 800; color: var(--k-sub); text-align: center; }
       .goalbar.ready .goal-text { color: var(--k-good); }
+      /* compact tiles (low height): tiles grow with their content instead of
+         squeezing it; percent inline; savings bar and its text in one row */
+      :host([short]) .tiles { grid-auto-rows: auto; }
+      :host([short]) .tile { justify-content: flex-start; padding: 14px 12px 12px; }
+      :host([short]) .pts .pct-over { display: inline; margin-left: 6px; font-size: 0.6em; }
+      :host([short]) .goalbar { flex-direction: row; gap: 8px; max-width: 340px; }
+      :host([short]) .goal-track { flex: 1; height: 10px; }
+      :host([short]) .goal-text { font-size: 15px; white-space: nowrap; }
+      :host([short]) .praise-tag { font-size: 32px; top: 6px; right: 8px; }
       .shop-btn { margin-left: auto; min-height: 88px; padding: 0 28px; border-radius: 44px; background: #F9A825; color: #1b1b1b; border: 4px solid #F57F17; font-size: 32px; font-weight: 800; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 0 rgba(0,0,0,0.22); }
       .shop-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.22); }
       .shop-bal { font-size: 26px; padding: 4px 14px; border-radius: 22px; background: rgba(255,255,255,0.6); }
